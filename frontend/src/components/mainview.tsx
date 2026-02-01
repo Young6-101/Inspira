@@ -1,114 +1,88 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Button } from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, useDisclosure, Input } from "@heroui/react";
+import { StackDashboard } from "./StackDashboard";
+import { useScramble } from "../hooks/UseScramble";
 
-// --- 简单的 SVG 图标组件 ---
-const PlusIcon = () => (
-  <svg fill="none" height="24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
-    <line x1="12" x2="12" y1="5" y2="19" />
-    <line x1="5" x2="19" y1="12" y2="12" />
-  </svg>
-);
+export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddStack: (n: string) => void }) {
+  const { isOpen, onOpen, onOpenChange } = useDisclosure();
+  const [name, setName] = useState("");
+  const { displayChar, trigger } = useScramble("From chaos to clarity.");
+  const hasStacks = stacks.length > 0;
 
-const ChevronDown = () => (
-  <svg fill="none" height="24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
-    <path d="m6 9 6 6 6-6" />
-  </svg>
-);
-
-export default function MainView() {
-  const subtitleText = "From chaos to clarity.";
-  const [displaySubtitle, setDisplaySubtitle] = useState("");
-  const chars = "!@#$%^&*()_+{}[]|;:,.<>?";
-
-  const triggerScramble = useCallback(() => {
-    let iteration = 0;
-    const interval = setInterval(() => {
-      setDisplaySubtitle(subtitleText.split("").map((letter, index) => {
-        if (index < iteration) return subtitleText[index];
-        return chars[Math.floor(Math.random() * chars.length)];
-      }).join(""));
-      if (iteration >= subtitleText.length) clearInterval(interval);
-      iteration += 1 / 3;
-    }, 30);
-  }, [subtitleText]);
-
-  useEffect(() => { triggerScramble(); }, [triggerScramble]);
+  useEffect(() => { trigger(); }, []);
 
   return (
-    <div className="relative h-full w-full flex flex-col justify-center items-center text-center p-8 bg-[#f9f9f9] overflow-hidden">
-      
-      {/* 1. 主标题区域 */}
-      <div className="flex flex-col items-center">
-        <motion.h1 
-          initial={{ opacity: 0, y: 100 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 2.5, ease: [0.16, 1, 0.3, 1] }}
-          className="text-4xl md:text-6xl lg:text-7xl font-black tracking-tighter text-[#000000] flex flex-wrap justify-center gap-x-4"
-        >
-          <span>Scatter Now.</span>
-          <motion.span 
-            whileHover="hover"
-            className="relative inline-block cursor-default text-primary overflow-hidden px-1"
+    <div className="w-full h-full relative overflow-hidden bg-[#f9f9f9]">
+      <StackDashboard stacks={stacks}>
+        
+        {/* --- 第一页：Hero --- */}
+        <section className="h-screen w-full flex flex-col justify-center items-center">
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+            className="flex flex-col items-center"
           >
-            Think later.
-            <motion.div 
-              variants={{ hover: { x: ["-100%", "200%"] } }}
-              transition={{ duration: 0.8, ease: "linear" }}
-              className="absolute inset-0 w-1/2 h-full skew-x-[-20deg] bg-gradient-to-r from-transparent via-white/40 to-transparent pointer-events-none"
-            />
-          </motion.span>
-        </motion.h1>
+            {/* 只保留这一个带动效的标题 */}
+            <h1 className="text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter flex items-center gap-4 whitespace-nowrap">
+              <span className="text-default-900">Scatter Now.</span>
+              <motion.span 
+                whileHover="hover"
+                className="relative text-[#0a86ce] px-2 overflow-hidden cursor-default"
+              >
+                Think later.
+                <motion.div 
+                  variants={{ hover: { x: ["-100%", "200%"] } }}
+                  transition={{ duration: 0.8, ease: "linear" }}
+                  className="absolute inset-0 w-full h-full skew-x-[-25deg] bg-gradient-to-r from-transparent via-white/60 to-transparent pointer-events-none"
+                />
+              </motion.span>
+            </h1>
 
-        {/* 2. 乱码副标题 */}
-        <motion.div 
-          onMouseEnter={triggerScramble}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.6 }}
-          transition={{ delay: 1.5, duration: 1 }}
-          className="mt-6 font-mono text-lg md:text-xl text-default-500 cursor-pointer select-none tracking-widest uppercase"
-        >
-          {displaySubtitle}
-        </motion.div>
+            <p onMouseEnter={trigger} className="mt-8 font-mono text-xl text-default-400 uppercase tracking-[0.4em] cursor-pointer">
+              {displayChar}
+            </p>
+            
+            <Button 
+              onPress={onOpen}
+              className="mt-16 w-20 h-20 bg-[#0a86ce] text-white text-4xl rounded-full shadow-2xl hover:scale-110 transition-transform font-light"
+            >
+              +
+            </Button>
+          </motion.div>
+        </section>
 
-        {/* 3. HeroUI 圆形加号按钮 (带投影) */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.5 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 2, duration: 0.8, type: "spring" }}
-          className="mt-12"
-        >
-          <Button
-            isIconOnly
-            color="primary"
-            radius="full"
-            variant="shadow" // 这就是自带的投影效果
-            size="lg"
-            className="w-16 h-16 shadow-primary/40" // 稍微加深投影颜色，让它更“浮”起来
-            aria-label="Add project"
-          >
-            <PlusIcon />
-          </Button>
-        </motion.div>
-      </div>
+        {/* --- 第二页：Management (二级标题布局) --- */}
+        {hasStacks && (
+          <section className="h-screen w-full p-16 flex flex-col items-start justify-start relative">
+            <h2 className="text-5xl font-black text-[#0a86ce] tracking-tighter uppercase opacity-80">
+              Stack<br />Management
+            </h2>
+            {/* 提示：3D 文件夹会自动浮现在这个标题下方的空白区域 */}
+          </section>
+        )}
+      </StackDashboard>
 
-      {/* 4. 底部滑动指示标识 */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 3, duration: 1 }}
-        className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
-      >
-        <p className="text-[10px] tracking-[0.3em] uppercase text-default-400 font-medium">Scroll</p>
-        <motion.div
-          animate={{ y: [0, 8, 0] }} // 循环上下跳动
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="text-default-400"
-        >
-          <ChevronDown />
-        </motion.div>
-      </motion.div>
-
+      <Modal isOpen={isOpen} onOpenChange={onOpenChange} backdrop="blur" className="z-[9999]">
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="font-bold text-[#0a86ce]">New Stack</ModalHeader>
+              <ModalBody>
+                <Input 
+                  autoFocus label="Stack Name" variant="bordered" 
+                  value={name} onValueChange={setName}
+                  onKeyDown={(e) => e.key === 'Enter' && (onAddStack(name), setName(""), onClose())}
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button className="bg-[#0a86ce] text-white font-bold" onPress={() => { onAddStack(name); setName(""); onClose(); }}>Confirm</Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
