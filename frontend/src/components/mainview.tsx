@@ -75,7 +75,7 @@ export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddS
         {hasStacks && (
           <section className="h-screen w-full p-16 flex flex-col items-start justify-start relative flex-shrink-0">
             <h2 className="text-3xl font-black text-[#0a86ce] tracking-tighter uppercase">
-              Stack<br />Management
+              Stack Management
             </h2>
           </section>
         )}

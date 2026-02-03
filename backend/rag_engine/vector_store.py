@@ -33,3 +33,21 @@ class InspiraVault:
             ids=ids
         )
         print(f"--- [LOG] Successfully stored {len(chunks)} fragments into the Vault. ---")
+
+    def search_clarity(self, query: str, top_k: int = 3):
+        """
+        Search for the most relevant fragments from the vault.
+        query: The user's natural language question.
+        top_k: Number of fragments to retrieve.
+        """
+        # Convert the query into a vector using the same GPU-accelerated embedder
+        query_vector = self.embedder.get_embeddings([query])[0]
+        
+        # Query the collection
+        results = self.collection.query(
+            query_embeddings=[query_vector],
+            n_results=top_k
+        )
+        
+        # Return the retrieved text fragments
+        return results['documents'][0]
