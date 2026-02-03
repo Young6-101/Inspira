@@ -47,3 +47,7 @@ build/
 # Uploaded & temp files
 uploads/
 temp/
+
+# OS specific files
+.DS_Store
+Thumbs.db
