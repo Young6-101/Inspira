@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, useDisclosure, Input } from "@heroui/react";
-import { StackDashboard } from "./StackDashboard";
+import { StackDashboard } from "./StackDashBoard";
 import { useScramble } from "../hooks/UseScramble";
 
 export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddStack: (n: string) => void }) {
@@ -9,15 +9,16 @@ export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddS
   const [name, setName] = useState("");
   const { displayChar, trigger } = useScramble("From chaos to clarity.");
   const hasStacks = stacks.length > 0;
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => { trigger(); }, []);
 
   return (
     <div className="w-full h-full relative overflow-hidden bg-[#f9f9f9]">
-      <StackDashboard stacks={stacks}>
+      <StackDashboard stacks={stacks} onScrollProgress={setScrollProgress}>
         
         {/* --- 第一页：Hero --- */}
-        <section className="h-screen w-full flex flex-col justify-center items-center">
+        <section className="h-screen w-full flex flex-col justify-center items-center flex-shrink-0 relative">
           <motion.div 
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -25,7 +26,7 @@ export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddS
             className="flex flex-col items-center"
           >
             {/* 只保留这一个带动效的标题 */}
-            <h1 className="text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter flex items-center gap-4 whitespace-nowrap">
+            <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter flex flex-col sm:flex-row items-center gap-2 sm:gap-4 px-4">
               <span className="text-default-900">Scatter Now.</span>
               <motion.span 
                 whileHover="hover"
@@ -51,15 +52,31 @@ export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddS
               +
             </Button>
           </motion.div>
+
+          {/* Scroll 提示（仅在有文件夹时显示） - 固定在第一页底部 */}
+          {hasStacks && (
+            <motion.div 
+              animate={{ 
+                y: scrollProgress < 0.05 ? [0, 10, 0] : 20,
+                opacity: scrollProgress < 0.05 ? 1 : 0
+              }}
+              transition={{ duration: scrollProgress < 0.05 ? 2 : 0.3, repeat: scrollProgress < 0.05 ? Infinity : 0 }}
+              className="absolute bottom-8 flex flex-col items-center gap-2 pointer-events-none"
+            >
+              <span className="text-sm text-default-400 uppercase tracking-widest font-mono">scroll</span>
+              <svg className="w-5 h-5 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            </motion.div>
+          )}
         </section>
 
-        {/* --- 第二页：Management (二级标题布局) --- */}
+        {/* --- 第二页：Management (副标题) --- */}
         {hasStacks && (
-          <section className="h-screen w-full p-16 flex flex-col items-start justify-start relative">
-            <h2 className="text-5xl font-black text-[#0a86ce] tracking-tighter uppercase opacity-80">
+          <section className="h-screen w-full p-16 flex flex-col items-start justify-start relative flex-shrink-0">
+            <h2 className="text-3xl font-black text-[#0a86ce] tracking-tighter uppercase">
               Stack<br />Management
             </h2>
-            {/* 提示：3D 文件夹会自动浮现在这个标题下方的空白区域 */}
           </section>
         )}
       </StackDashboard>

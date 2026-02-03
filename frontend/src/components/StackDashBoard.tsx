@@ -1,9 +1,17 @@
 import React, { Suspense } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { ScrollControls, Scroll } from '@react-three/drei';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { ScrollControls, Scroll, useScroll } from '@react-three/drei';
 import { Scene } from './Scene';
 
-export const StackDashboard = ({ stacks, children }: { stacks: any[]; children: React.ReactNode }) => {
+const ScrollProgressCapture = ({ onProgress }: { onProgress: (progress: number) => void }) => {
+  const scroll = useScroll();
+  useFrame(() => {
+    onProgress(scroll.offset);
+  });
+  return null;
+};
+
+export const StackDashboard = ({ stacks, children, onScrollProgress }: { stacks: any[]; children: React.ReactNode; onScrollProgress?: (progress: number) => void }) => {
   const hasStacks = stacks.length > 0;
 
   return (
@@ -12,10 +20,10 @@ export const StackDashboard = ({ stacks, children }: { stacks: any[]; children: 
       <Suspense fallback={null}>
         <ScrollControls 
           damping={2} 
-          // 关键：没有文件夹时只有 1 页，滑不动
           pages={hasStacks ? 2 : 1} 
           enabled={hasStacks}
         >
+          {onScrollProgress && <ScrollProgressCapture onProgress={onScrollProgress} />}
           <Scroll>
             <Scene stacks={stacks} />
           </Scroll>
