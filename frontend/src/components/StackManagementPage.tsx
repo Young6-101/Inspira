@@ -15,8 +15,8 @@ export const StackManagementPage = ({ stacks, onStackClick, onAddStack }: StackM
     }
 
     return (
-        <section className="h-screen w-full flex flex-col justify-start items-start pt-24 px-8 flex-shrink-0">
-            {/* 标题 */}
+        <section className="h-screen w-full flex flex-col justify-start items-start pt-12 px-8 flex-shrink-0">
+            {/* title */}
             <motion.div
                 initial={{ opacity: 0, y: 30 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -32,7 +32,7 @@ export const StackManagementPage = ({ stacks, onStackClick, onAddStack }: StackM
                 </p>
             </motion.div>
 
-            {/* Stack 图标网格 + Add Button */}
+            {/* Stack + Add Button */}
             <div className="grid grid-cols-5 gap-12">
                 {stacks.map((stack, index) => (
                     <motion.div

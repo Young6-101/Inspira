@@ -17,7 +17,7 @@
     padding: 36px;
     border-radius: 22px;
     color: #ffffff;
-    background: #0a3cff;
+    background: #3c90c0;
     transition: all 0.48s cubic-bezier(0.23, 1, 0.32, 1);
     position: relative;
 }
@@ -30,7 +30,7 @@
     width: 90%;
     height: 90%;
     transform: translate(-50%);
-    background: #cddcfd;
+    background: #cdeffd;
     z-index: -1;
     transform-origin: bottom;
     border-radius: inherit;
@@ -45,7 +45,7 @@
     width: 80%;
     height: 80%;
     transform: translate(-50%);
-    background: #b6c2f3;
+    background: #bce3f6;
     z-index: -2;
     transform-origin: bottom;
     border-radius: inherit;

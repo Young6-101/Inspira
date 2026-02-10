@@ -4,12 +4,15 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, useDi
 import { useScramble } from "../hooks/useScramble";
 import { StackManagementPage } from "./StackManagementPage";
 import { AddButton } from "./AddButton";
+import { StackDetailPage } from "./StackDetailPage";
+import { Stack } from "../hooks/useStack";
 
-export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddStack: (n: string) => void }) {
+export default function MainView({ stacks, onAddStack }: { stacks: Stack[], onAddStack: (n: string) => void }) {
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [name, setName] = useState("");
   const { displayText, trigger } = useScramble("From chaos to clarity.");
   const [showManagement, setShowManagement] = useState(false);
+  const [selectedStack, setSelectedStack] = useState<Stack | null>(null);
 
   useEffect(() => {
     trigger();
@@ -43,8 +46,11 @@ export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddS
             >
               Think later.
               <motion.div
+                initial={{ x: "-100%" }}
+                animate={{ x: "200%" }}
                 variants={{ hover: { x: ["-100%", "200%"] } }}
-                transition={{ duration: 0.8, ease: "linear" }}
+                transition={{ duration: 0.8, ease: "linear", repeat: 0 }}
+                whileHover={{ x: ["0%", "200%"] }}
                 className="absolute inset-0 w-full h-full skew-x-[-25deg] bg-gradient-to-r from-transparent via-white/60 to-transparent pointer-events-none"
               />
             </motion.span>
@@ -87,8 +93,28 @@ export default function MainView({ stacks, onAddStack }: { stacks: any[], onAddS
               ✕
             </button>
 
-            <StackManagementPage stacks={stacks} onAddStack={onOpen} />
+            <StackManagementPage
+              stacks={stacks}
+              onAddStack={onOpen}
+              onStackClick={(stack) => {
+                setSelectedStack(stack);
+                setShowManagement(false);
+              }}
+            />
           </motion.div>
+        )}
+
+        {/* --- Stack Detail Page --- */}
+        {selectedStack && (
+          <div className="fixed top-0 bottom-0 right-0 z-50" style={{ left: '224px' }}>
+            <StackDetailPage
+              stack={selectedStack}
+              onClose={() => {
+                setSelectedStack(null);
+                setShowManagement(true);
+              }}
+            />
+          </div>
         )}
       </AnimatePresence>
 
