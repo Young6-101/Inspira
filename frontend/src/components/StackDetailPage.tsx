@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Stack } from "../hooks/useStack";
 
@@ -29,11 +29,13 @@ const FileIcon = ({ file, displayName, onRename }: { file: File; displayName: st
     const fileType = getFileType(file.name);
 
     // Generate thumbnail for images
-    if (fileType === 'image' && !thumbnail) {
-        const reader = new FileReader();
-        reader.onload = (e) => setThumbnail(e.target?.result as string);
-        reader.readAsDataURL(file);
-    }
+    useEffect(() => {
+        if (fileType === 'image') {
+            const reader = new FileReader();
+            reader.onload = (e) => setThumbnail(e.target?.result as string);
+            reader.readAsDataURL(file);
+        }
+    }, [file, fileType]);
 
     const handleRename = () => {
         if (editName.trim()) {
