@@ -4,6 +4,11 @@ import { BrowserRouter } from "react-router-dom";
 import { Provider } from "./Provider";
 import App from "./App.tsx";
 import "./styles/globals.css";
+import { Amplify } from "aws-amplify";
+import { awsConfig } from "./config/aws-config";
+
+Amplify.configure(awsConfig);
+
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
