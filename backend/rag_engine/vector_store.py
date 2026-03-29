@@ -1,91 +1,49 @@
+"""
+Vector store using ChromaDB with OpenAI embeddings.
+Simplified: text-only storage (images are described as text then stored).
+"""
 import chromadb
-from backend.rag_engine.embedder import InspiraEmbedder, MultimodalEmbedder
+from backend.rag_engine.embedder import InspiraEmbedder
 from typing import Optional
+import uuid
+
 
 class InspiraVault:
     def __init__(self, db_path="./inspira_db"):
-        """
-        Initializes the persistent vector database.
-        """
-        # 1. Create a local database client
         self.client = chromadb.PersistentClient(path=db_path)
-        
-        # 2. text
-        self.text_embedder = InspiraEmbedder()
-        self.text_collection = self.client.get_or_create_collection(name="text_inspiration")
+        self.embedder = InspiraEmbedder()
 
-        # 3. multimodal
-        self.vision_embedder = MultimodalEmbedder()
-        self.vision_collection = self.client.get_or_create_collection(name="vision_inspiration")
+    def get_collection(self, stack_id: str):
+        """Get or create a collection for a specific stack."""
+        return self.client.get_or_create_collection(name=f"stack_{stack_id}")
 
-    # text input
-    def store_clarity(self, chunks: list[str], metadata: Optional[list[dict]] = None):
-        """
-        Takes raw chunks, embeds them, and saves to local storage.
-        """
-        # Generate unique IDs for each chunk
-        ids = [f"id_{i}" for i in range(len(chunks))]
-        
-        # Convert chunks to vectors
-        embeddings = self.text_embedder.get_embeddings(chunks)
-        
-        # Save to database
-        self.text_collection.add(
+    def store_chunks(self, stack_id: str, chunks: list[str], source: str = "upload"):
+        """Store text chunks into a stack's collection."""
+        if not chunks:
+            return
+
+        collection = self.get_collection(stack_id)
+        embeddings = self.embedder.get_embeddings(chunks)
+        ids = [f"{source}_{uuid.uuid4().hex[:8]}" for _ in chunks]
+        metadatas = [{"source": source}] * len(chunks)
+
+        collection.add(
             documents=chunks,
             embeddings=embeddings,
-            metadatas=metadata or [{"source": "pdf_upload"}] * len(chunks),
-            ids=ids
-        )
-        print(f"--- [LOG] Successfully stored {len(chunks)} fragments into the Vault. ---")
-
-    def search_clarity(self, query: str, top_k: int = 3):
-        """
-        Search for the most relevant fragments from the vault.
-        query: The user's natural language question.
-        top_k: Number of fragments to retrieve.
-        """
-        # Convert the query into a vector using the same GPU-accelerated embedder
-        query_vector = self.text_embedder.get_embeddings([query])[0]
-        
-        # Query the collection
-        results = self.text_collection.query(
-            query_embeddings=[query_vector],
-            n_results=top_k
-        )
-        
-        # Return the retrieved text fragments
-        return results['documents'][0]
-    
-    def store_vision(self, image_paths: list[str], metadata: Optional[list[dict]] = None):
-        """
-        Takes image paths, embeds them, and saves to local storage.
-        """
-        ids = []
-        embeddings = []
-        
-        for idx, image_path in enumerate(image_paths):
-            vector = self.vision_embedder.embed_image(image_path)
-            ids.append(f"image_{idx}")
-            embeddings.append(vector.tolist())
-
-        self.vision_collection.add(
+            metadatas=metadatas,
             ids=ids,
-            embeddings=embeddings,
-            metadatas=metadata or [{"source": "image_upload"}] * len(image_paths)
         )
-        print(f"--- [LOG] Successfully stored {len(image_paths)} images into the Vault. ---")
-    
-    def search_vision(self, query_text: str, top_k: int = 2):
-        """
-        Search for the most relevant images from the vault using text query.
-        query_text: The user's text query.
-        top_k: Number of images to retrieve.
-        """
-        query_vector = self.vision_embedder.embed_text(query_text)
-        
-        results = self.vision_collection.query(
-            query_embeddings=[query_vector.tolist()],
-            n_results=top_k
+        print(f"--- [LOG] Stored {len(chunks)} chunks into stack {stack_id} ---")
+
+    def search(self, stack_id: str, query: str, top_k: int = 5) -> list[str]:
+        """Search for relevant chunks in a stack."""
+        collection = self.get_collection(stack_id)
+        if collection.count() == 0:
+            return []
+
+        query_embedding = self.embedder.get_single_embedding(query)
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(top_k, collection.count()),
         )
-        
-        return results['ids'][0] if results['ids'] else []
+        return results["documents"][0] if results["documents"] else []

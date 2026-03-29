@@ -2,7 +2,6 @@ import io
 from pathlib import Path
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
-from backend.file_processor.image_handler import ImageDescriber
 
 
 def extract_text_from_pptx(file_path: str, describe_images: bool = True) -> str:
@@ -31,7 +30,7 @@ def extract_text_from_pptx(file_path: str, describe_images: bool = True) -> str:
         print(f"--- [ERROR] Failed to open PPTX {file_path}: {e} ---")
         return ""
 
-    describer = ImageDescriber() if describe_images else None
+    describer = None  # Image description handled separately in main.py
     all_parts: list[str] = []
 
     for slide_idx, slide in enumerate(prs.slides, start=1):

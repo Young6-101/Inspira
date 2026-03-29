@@ -1,18 +1,33 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, useDisclosure, Input } from "@heroui/react";
+
 import { useScramble } from "../hooks/useScramble";
 import { StackManagementPage } from "./StackManagementPage";
 import { AddButton } from "./AddButton";
 import { StackDetailPage } from "./StackDetailPage";
 import { Stack } from "../hooks/useStack";
 
-export default function MainView({ stacks, onAddStack }: { stacks: Stack[], onAddStack: (n: string) => void }) {
-  const { isOpen, onOpen, onOpenChange } = useDisclosure();
+export default function MainView({
+  stacks,
+  onAddStack,
+  activeStackId,
+  setActiveStackId,
+  showManagement,
+  setShowManagement,
+  updateFileCount
+}: {
+  stacks: Stack[],
+  onAddStack: (n: string) => void,
+  activeStackId: string | null,
+  setActiveStackId: (id: string | null) => void,
+  showManagement: boolean,
+  setShowManagement: (show: boolean) => void,
+  updateFileCount: (id: string, count: number) => void
+}) {
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState("");
   const { displayText, trigger } = useScramble("From chaos to clarity.");
-  const [showManagement, setShowManagement] = useState(false);
-  const [selectedStack, setSelectedStack] = useState<Stack | null>(null);
+  const activeStack = stacks.find(s => s.id === activeStackId) || null;
 
   useEffect(() => {
     trigger();
@@ -29,7 +44,7 @@ export default function MainView({ stacks, onAddStack }: { stacks: Stack[], onAd
             setShowManagement(true);
           }
         }}
-        className={`h-screen w-full flex flex-col justify-center items-center flex-shrink-0 relative ${stacks.length > 0 ? 'cursor-pointer' : ''}`}
+        className={`h-full w-full flex flex-col justify-center items-center flex-shrink-0 relative ${stacks.length > 0 ? 'cursor-pointer' : ''}`}
       >
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -39,7 +54,7 @@ export default function MainView({ stacks, onAddStack }: { stacks: Stack[], onAd
         >
 
           <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter flex flex-col sm:flex-row items-center gap-2 sm:gap-4 px-4">
-            <span className="text-default-900">Scatter Now.</span>
+            <span className="text-gray-900">Scatter Now.</span>
             <motion.span
               whileHover="hover"
               className="relative text-[#0a86ce] px-2 overflow-hidden cursor-default"
@@ -56,20 +71,20 @@ export default function MainView({ stacks, onAddStack }: { stacks: Stack[], onAd
             </motion.span>
           </h1>
 
-          <p onMouseEnter={trigger} className="mt-8 font-mono text-xl text-default-400 uppercase tracking-[0.4em] cursor-pointer">
+          <p onMouseEnter={trigger} className="mt-8 font-mono text-xl text-gray-400 uppercase tracking-[0.4em] cursor-pointer">
             {displayText}
           </p>
 
           <div onClick={(e) => e.stopPropagation()} className="mt-16">
-            <AddButton onPress={onOpen} />
+            <AddButton onPress={() => setIsModalOpen(true)} />
           </div>
         </motion.div>
 
       </section>
 
       {/* Hint at bottom */}
-      {stacks.length > 0 && (
-        <p className="fixed bottom-8 text-sm text-default-400 z-10" style={{ left: 'calc(224px + (100% - 224px) / 2)', transform: 'translateX(-50%)' }}>
+      {stacks.length > 0 && !activeStack && !showManagement && (
+        <p className="absolute bottom-8 left-1/2 -translate-x-1/2 text-sm text-gray-400 z-10 pointer-events-none">
           Click anywhere to view stacks
         </p>
       )}
@@ -82,22 +97,21 @@ export default function MainView({ stacks, onAddStack }: { stacks: Stack[], onAd
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed top-0 bottom-0 right-0 bg-[#f9f9f9] z-50 overflow-y-auto"
-            style={{ left: '224px' }}
+            className="absolute inset-0 bg-[#f9f9f9] z-50 overflow-y-auto"
           >
             {/* Close button */}
             <button
               onClick={() => setShowManagement(false)}
-              className="fixed top-8 right-8 w-12 h-12 rounded-full bg-default-900 text-white flex items-center justify-center hover:scale-110 transition-transform z-10"
+              className="absolute top-8 right-8 w-12 h-12 rounded-full bg-gray-900 text-white flex items-center justify-center hover:scale-110 transition-transform z-10"
             >
               ✕
             </button>
 
             <StackManagementPage
               stacks={stacks}
-              onAddStack={onOpen}
+              onAddStack={() => setIsModalOpen(true)}
               onStackClick={(stack) => {
-                setSelectedStack(stack);
+                setActiveStackId(stack.id);
                 setShowManagement(false);
               }}
             />
@@ -105,38 +119,72 @@ export default function MainView({ stacks, onAddStack }: { stacks: Stack[], onAd
         )}
 
         {/* --- Stack Detail Page --- */}
-        {selectedStack && (
-          <div className="fixed top-0 bottom-0 right-0 z-50" style={{ left: '224px' }}>
+        {activeStack && (
+          <div className="absolute inset-0 z-50">
             <StackDetailPage
-              stack={selectedStack}
+              stack={activeStack}
               onClose={() => {
-                setSelectedStack(null);
+                setActiveStackId(null);
                 setShowManagement(true);
               }}
+              updateFileCount={updateFileCount}
             />
           </div>
         )}
       </AnimatePresence>
 
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange} backdrop="blur" className="z-[9999]">
-        <ModalContent>
-          {(onClose) => (
-            <>
-              <ModalHeader className="font-bold text-[#0a86ce]">New Stack</ModalHeader>
-              <ModalBody>
-                <Input
-                  autoFocus label="Stack Name" variant="bordered"
-                  value={name} onValueChange={setName}
-                  onKeyDown={(e) => e.key === 'Enter' && (onAddStack(name), setName(""), onClose())}
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+              onClick={() => setIsModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 overflow-hidden flex flex-col gap-4"
+            >
+              <h3 className="text-xl font-bold text-[#0a86ce]">New Stack</h3>
+              <div className="mt-2">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Stack Name"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-[#0a86ce] text-gray-800 bg-gray-50"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      onAddStack(name);
+                      setName("");
+                      setIsModalOpen(false);
+                    }
+                  }}
                 />
-              </ModalBody>
-              <ModalFooter>
-                <Button className="bg-[#0a86ce] text-white font-bold" onPress={() => { onAddStack(name); setName(""); onClose(); }}>Confirm</Button>
-              </ModalFooter>
-            </>
-          )}
-        </ModalContent>
-      </Modal>
+              </div>
+              <div className="flex justify-end gap-3 mt-4">
+                <button
+                  className="px-6 py-2.5 text-gray-500 font-medium hover:bg-gray-100 rounded-xl transition-colors"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-6 py-2.5 bg-[#0a86ce] text-white font-bold rounded-xl hover:bg-[#0970a8] transition-colors"
+                  onClick={() => {
+                    onAddStack(name);
+                    setName("");
+                    setIsModalOpen(false);
+                  }}
+                >
+                  Confirm
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -15,7 +15,7 @@ export const StackManagementPage = ({ stacks, onStackClick, onAddStack }: StackM
     }
 
     return (
-        <section className="h-screen w-full flex flex-col justify-start items-start pt-12 px-8 flex-shrink-0">
+        <section className="h-full min-h-full w-full flex flex-col justify-start items-start pt-12 px-8 flex-shrink-0">
             {/* title */}
             <motion.div
                 initial={{ opacity: 0, y: 30 }}
@@ -27,7 +27,7 @@ export const StackManagementPage = ({ stacks, onStackClick, onAddStack }: StackM
                 <h2 className="text-5xl sm:text-6xl font-black tracking-tighter text-[#0a86ce]">
                     Stack Management
                 </h2>
-                <p className="mt-4 font-mono text-sm text-default-400 uppercase tracking-[0.3em]">
+                <p className="mt-4 font-mono text-sm text-gray-400 uppercase tracking-[0.3em]">
                     {stacks.length} {stacks.length === 1 ? 'Stack' : 'Stacks'}
                 </p>
             </motion.div>

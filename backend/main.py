@@ -1,129 +1,197 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+"""
+Inspira Backend API - OpenAI-powered version.
+Handles file upload (PDF/PPT/Audio/Image) → text extraction → embedding storage → RAG chat.
+"""
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv
 import shutil
 import os
 from typing import List
 
-# Import your custom modules
+# Load .env before anything else
+load_dotenv()
+
 from backend.file_processor.pdf_handler import extract_text_from_pdf
 from backend.file_processor.ppt_handler import extract_text_from_pptx
 from backend.file_processor.audio_handler import AudioTranscriber
+from backend.file_processor.image_handler import ImageDescriber
+from backend.file_processor.text_splitter import split_text
 from backend.rag_engine.vector_store import InspiraVault
-from backend.reasoning.graph import app as reasoning_app
+from openai import OpenAI
 
 app = FastAPI(title="Inspira Backend API")
 
-# --- CORS Configuration ---
-# Allow requests from your frontend (localhost:5173 by default for Vite)
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",  # Just in case
-]
-
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Data Models ---
+# --- Singletons ---
+vault = InspiraVault()
+image_describer = ImageDescriber()
+audio_transcriber = AudioTranscriber()
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# --- File type detection ---
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".webm", ".mp4"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp"}
+TEXT_EXTENSIONS = {".txt", ".md"}
+
+
 class ChatRequest(BaseModel):
     question: str
-    context: List[str] = [] # Optional context from frontend if needed
+    stack_id: str
+    mode: str = "patterns"   # Added AI mode
+    model: str = "gpt-4o-mini" # Added chosen LLM
+
 
 class ChatResponse(BaseModel):
     answer: str
 
-# --- Endpoints ---
 
 @app.get("/health")
 async def health_check():
-    """Simple endpoint to check if backend is running."""
-    return {"status": "ok", "message": "Inspira Backend is running 🚀"}
+    return {"status": "ok", "message": "Inspira Backend (OpenAI) is running 🚀"}
 
-# Supported audio extensions
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".wma", ".aac", ".webm"}
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    stack_id: str = Form(...),
+):
     """
-    Endpoint for uploading files (PDFs, PPTs, Audio).
-    1. Saves the file locally (temporarily).
-    2. Extracts text using the appropriate handler.
-    3. (TODO: In future steps) Embeds and stores text in Vector DB.
+    Upload a file to a stack.
+    1. Save temp file
+    2. Extract text (based on file type)
+    3. Split into chunks
+    4. Embed and store in ChromaDB under the stack's collection
     """
     try:
-        # 1. Create a temporary file path
-        temp_file_path = f"temp_{file.filename}"
-        
-        # 2. Save the uploaded file to disk
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # 3. Process the file based on type
-        text_content = ""
-        filename_lower = file.filename.lower()
-        ext = os.path.splitext(filename_lower)[1]
+        filename = file.filename or "unknown"
+        ext = os.path.splitext(filename.lower())[1]
+        temp_path = f"temp_{filename}"
 
+        # Save to disk
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        text_content = ""
+
+        # --- PDF ---
         if ext == ".pdf":
-            text_content = extract_text_from_pdf(temp_file_path)
+            text_content = extract_text_from_pdf(temp_path)
+
+        # --- PPT ---
         elif ext in (".pptx", ".ppt"):
-            text_content = extract_text_from_pptx(temp_file_path)
+            text_content = extract_text_from_pptx(temp_path, describe_images=False)
+
+        # --- Audio ---
         elif ext in AUDIO_EXTENSIONS:
-            transcriber = AudioTranscriber()
-            text_content = transcriber.transcribe(temp_file_path)
-        else:
-            os.remove(temp_file_path)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type: {ext}. Supported: .pdf, .pptx, .ppt, {', '.join(sorted(AUDIO_EXTENSIONS))}"
+            text_content = audio_transcriber.transcribe(temp_path)
+
+        # --- Image → describe with GPT-4o vision, then store description as text ---
+        elif ext in IMAGE_EXTENSIONS:
+            with open(temp_path, "rb") as f:
+                image_bytes = f.read()
+            text_content = image_describer.describe_image_bytes(
+                image_bytes, filename,
+                prompt="Describe this image in detail. Focus on key visual elements, text content, diagrams, charts, patterns, colors, and any notable characteristics."
             )
-            
-        # --- RAG Integration Point ---
-        # vault = InspiraVault()
-        # vault.add_document(text_content) 
-        # -----------------------------
-            
-        # 4. Cleanup: Remove temp file
-        os.remove(temp_file_path)
-        
-        if not text_content:
-             return {"filename": file.filename, "message": "File uploaded but no text extracted (or empty)."}
+
+        # --- Plain text ---
+        elif ext in TEXT_EXTENSIONS:
+            with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
+                text_content = f.read()
+
+        else:
+            os.remove(temp_path)
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+
+        # Cleanup temp file
+        os.remove(temp_path)
+
+        if not text_content or not text_content.strip():
+            return {"filename": filename, "message": "File uploaded but no content extracted.", "chunks": 0}
+
+        # Split into chunks and store
+        chunks = split_text(text_content)
+        vault.store_chunks(stack_id, chunks, source=filename)
 
         return {
-            "filename": file.filename,
-            "message": "File processed successfully!",
-            "preview": text_content[:200] + "..."
+            "filename": filename,
+            "message": f"Processed and stored {len(chunks)} chunks",
+            "chunks": len(chunks),
+            "preview": text_content[:300],
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     """
-    Endpoint for chatting with the RAG engine.
-    Uses the LangGraph workflow defined in reasoning/graph.py
+    RAG-powered chat: retrieve relevant context from the stack, then generate answer.
     """
     try:
-        # Use your LangGraph app to generate an answer
-        # The graph expects a state with a 'question' key
-        inputs = {"question": request.question, "context": request.context}
-        
-        # Invoke the graph
-        result = reasoning_app.invoke(inputs)
-        
-        return {"answer": result['answer']}
+        # 1. Retrieve relevant chunks from this stack
+        context_chunks = vault.search(request.stack_id, request.question, top_k=5)
+
+        # 2. Build prompt based on requested mode
+        system_prompt = ""
+        if not context_chunks:
+            system_prompt = """You are 'Inspira', an AI assistant. The user hasn't uploaded any materials to this stack yet,
+or no relevant context was found. Let them know they can upload files (PDF, PPT, images, audio, text)
+and then ask questions to find patterns and insights."""
+        else:
+            context_text = "\n\n".join(f"[Fragment {i+1}]: {chunk}" for i, chunk in enumerate(context_chunks))
+            
+            # Map frontend mode to specific prompt instructions
+            mode_instructions = {
+                "patterns": "Identify common themes, recurring patterns, and synthesize a cohesive overview.",
+                "summarize": "Provide a concise and structured summary of the core points and key takeaways without fluff.",
+                "compare": "Analyze the context to compare different concepts, highlighting similarities and exact differences.",
+                "brainstorm": "Use the context as inspiration to generate highly creative, out-of-the-box ideas and novel suggestions.",
+                "custom": "Follow the user's specific instructional query exactly as requested, using the context."
+            }
+            
+            instruction = mode_instructions.get(request.mode, mode_instructions["patterns"])
+            
+            system_prompt = f"""You are 'Inspira', an AI assistant operating in '{request.mode}' mode.
+Your goal is to process the user's uploaded materials (documents, images, audio transcripts, notes) to help them.
+
+CRITICAL INSTRUCTION:
+{instruction}
+
+Retrieved Context:
+{context_text}"""
+
+        # 3. Call OpenAI with the chosen model
+        response = openai_client.chat.completions.create(
+            model=request.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": request.question},
+            ],
+            temperature=0.7,
+            max_tokens=1000,
+        )
+
+        return {"answer": response.choices[0].message.content}
 
     except Exception as e:
-        # For now, return a mock response if RAG fails/isn't fully set up
-        print(f"Error in chat endpoint: {e}")
-        return {"answer": f"Backend Error: {str(e)}"}
+        print(f"Error in chat: {e}")
+        return {"answer": f"Error: {str(e)}"}
+
 
 if __name__ == "__main__":
     import uvicorn
-    # Run the server
     uvicorn.run(app, host="0.0.0.0", port=8000)
