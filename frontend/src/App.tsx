@@ -25,10 +25,20 @@ export default function App() {
     setShowManagement(false);
   };
 
-  const content = (
-    <div className="flex h-full w-full bg-[#f3eced] overflow-hidden">
-      <Sidebar stacks={stacks} activeStackId={activeStackId} onStackClick={handleSidebarClick} onLogoClick={handleLogoClick} />
-      <main className="flex-1 relative overflow-hidden">
+  const buildContent = (userEmail?: string, onSignOut?: () => void) => (
+    <div className="fixed inset-0 flex min-w-0 min-h-0 bg-[#f3eced] overflow-hidden p-4 gap-4 box-border font-sans">
+      <Sidebar
+        stacks={stacks}
+        activeStackId={activeStackId}
+        onStackClick={handleSidebarClick}
+        onLogoClick={handleLogoClick}
+        userEmail={userEmail}
+        onSignOut={onSignOut}
+        onModifyProfile={() => {
+          console.log("Modify profile clicked");
+        }}
+      />
+      <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden bg-[#f7f2f3] rounded-2xl">
         <MainView
           stacks={stacks}
           onAddStack={handleAddStack}
@@ -45,12 +55,12 @@ export default function App() {
   const shouldSkipAuth = import.meta.env.VITE_SKIP_AUTH === 'true' || (import.meta.env.DEV && false);
 
   if (shouldSkipAuth) {
-    return content;
+    return buildContent();
   }
 
   return (
     <LoginPage>
-      {content}
+      {({ userEmail, signOut }) => buildContent(userEmail, signOut)}
     </LoginPage>
   );
 }

@@ -34,7 +34,7 @@ export default function MainView({
   }, [trigger]);
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-[#f9f9f9]">
+    <div className="w-full h-full min-h-0 relative overflow-hidden bg-[#f3eced]">
 
       {/* --- Hero Page --- */}
       <section
@@ -53,7 +53,7 @@ export default function MainView({
           className="flex flex-col items-center"
         >
 
-          <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter flex flex-col sm:flex-row items-center gap-2 sm:gap-4 px-4">
+          <h1 className="font-['Inter'] text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter flex flex-col sm:flex-row items-center gap-2 sm:gap-4 px-4">
             <span className="text-gray-900">Scatter Now.</span>
             <motion.span
               whileHover="hover"
@@ -71,7 +71,7 @@ export default function MainView({
             </motion.span>
           </h1>
 
-          <p onMouseEnter={trigger} className="mt-8 font-mono text-xl text-gray-400 uppercase tracking-[0.4em] cursor-pointer">
+          <p onMouseEnter={trigger} className="mt-8 font-sans font-medium text-xl text-gray-400 uppercase tracking-[0.4em] cursor-pointer">
             {displayText}
           </p>
 
@@ -97,7 +97,7 @@ export default function MainView({
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute inset-0 bg-[#f9f9f9] z-50 overflow-y-auto"
+            className="absolute inset-0 bg-[#f3eced] z-50 overflow-y-auto"
           >
             {/* Close button */}
             <button

@@ -1,21 +1,28 @@
 import { Stack } from "../hooks/useStack";
+import { UserAvatarMenu } from "./UserAvatarMenu";
 
 export const Sidebar = ({
   stacks,
   activeStackId,
   onStackClick,
-  onLogoClick
+  onLogoClick,
+  userEmail,
+  onSignOut,
+  onModifyProfile
 }: {
   stacks: Stack[],
   activeStackId?: string | null,
   onStackClick?: (id: string) => void,
-  onLogoClick?: () => void
+  onLogoClick?: () => void,
+  userEmail?: string,
+  onSignOut?: () => void,
+  onModifyProfile?: () => void
 }) => {
   return (
-    <div className="h-full w-64 shrink-0 flex flex-col bg-white border-r border-gray-100 z-50">
-      <div className="p-6 pb-0 flex flex-col h-full">
+    <div className="h-full min-h-0 w-[260px] lg:w-[280px] shrink-0 flex flex-col bg-white border border-[#e6dadd] rounded-2xl overflow-hidden z-50">
+      <div className="p-6 pb-4 flex flex-col h-full min-h-0">
         <h1
-          className="font-black text-4xl tracking-tighter text-[#0a86ce] mb-12 italic text-center cursor-pointer hover:opacity-80 transition-opacity"
+          className="font-['Inter'] font-black text-4xl tracking-tighter text-[#0a86ce] mb-12 italic text-center cursor-pointer hover:opacity-80 transition-opacity"
           onClick={onLogoClick}
         >
           Inspira
@@ -52,6 +59,12 @@ export const Sidebar = ({
             })}
           </ul>
         </div>
+
+        <UserAvatarMenu
+          userEmail={userEmail}
+          onSignOut={onSignOut}
+          onModifyProfile={onModifyProfile}
+        />
       </div>
     </div>
   );
