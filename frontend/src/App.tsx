@@ -7,17 +7,22 @@ export default function App() {
 
   const { stacks, addStack } = useStacks();
 
+  const content = (
+    <div className="flex h-screen w-full bg-[#f3eced] overflow-hidden">
+      <Sidebar stacks={stacks} />
+      <main className="flex-1 relative">
+        <MainView stacks={stacks} onAddStack={addStack} />
+      </main>
+    </div>
+  );
+
+  if (import.meta.env.DEV) {
+    return content;
+  }
+
   return (
     <LoginPage>
-      <div className="flex h-screen w-full bg-[#f3eced] overflow-hidden">
-
-        <Sidebar stacks={stacks} />
-
-        <main className="flex-1 relative">
-          <MainView stacks={stacks} onAddStack={addStack} />
-        </main>
-
-      </div>
+      {content}
     </LoginPage>
   );
 }

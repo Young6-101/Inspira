@@ -1,0 +1,692 @@
+# Inspira AWS Serverless 部署方案
+
+> [!IMPORTANT]
+> 你的项目目前还缺三块：**用户认证**、**文件持久化存储（数据库）**、**前后端连接调 LLM**。下面的方案会把这三块一并解决，和 AWS 部署整合在一起。
+
+---
+
+## 📊 当前状态 vs 目标状态
+
+| 功能 | 当前状态 | 部署后目标 | 用到的 AWS 服务 |
+|------|---------|-----------|----------------|
+| 前端 | Vite + React 本地 dev | S3 + CloudFront 全球 CDN | S3, CloudFront |
+| 后端 API | FastAPI 本地跑 | Lambda + API Gateway (真 serverless) | Lambda, API Gateway |
+| 用户登录 | ❌ 没有 | Cognito 托管认证 | Cognito |
+| 文件存储 | ❌ 临时 temp 文件 | S3 持久存储 + DynamoDB 元数据 | S3, DynamoDB |
+| 向量数据库 | ChromaDB 本地文件 | 仍用 ChromaDB on EFS or 换 OpenSearch Serverless | EFS / OpenSearch |
+| LLM 调用 | 本地 Ollama | OpenAI API / Bedrock | Secrets Manager |
+| 域名 HTTPS | ❌ | Route53 + ACM | Route53, ACM |
+
+---
+
+## 🏗️ 推荐架构（纯 Serverless）
+
+你 DEV_README 里写的是 ECS Fargate 方案，但既然你说要 serverless，我推荐一个**更省钱、更简单**的纯 serverless 方案：
+
+```
+用户浏览器
+    │
+    ▼
+CloudFront (CDN)
+    │
+    ├── 静态资源 → S3 (前端 React build)
+    │
+    └── /api/* → API Gateway (HTTP API)
+                    │
+                    ▼
+              Lambda (FastAPI via Mangum)
+                    │
+            ┌───────┼───────┬──────────┐
+            ▼       ▼       ▼          ▼
+         Cognito  S3      DynamoDB   OpenAI/Bedrock
+        (用户认证) (文件)  (元数据)    (LLM API)
+```
+
+> [!TIP]
+> **为什么不用 ECS Fargate？** Lambda 在你这个阶段更合适——自动扩缩、不用管容器、按请求计费。FastAPI 通过 `Mangum` 适配器可以直接跑在 Lambda 上，代码改动极小。等后面流量大了或者需要长连接 SSE streaming 再考虑 Fargate。
+
+> [!WARNING]
+> Lambda 有 **29 秒超时限制**（API Gateway 触发时），LangGraph 推理如果链很长可能超时。解决方案在下面 Phase 4 里讲。
+
+---
+
+## 🚀 分阶段实施
+
+### Phase 1: 前端部署到 S3 + CloudFront（最快见效）
+
+**耗时：~1 小时**
+
+#### 1.1 Build 前端
+
+```bash
+cd frontend
+npm run build
+# 产出在 frontend/dist/
+```
+
+#### 1.2 创建 S3 Bucket
+
+```bash
+# 创建桶
+aws s3 mb s3://inspira-frontend-<your-unique-id> --region ap-southeast-1
+
+# 上传 build 产物
+aws s3 sync dist/ s3://inspira-frontend-<your-unique-id> --delete
+
+# 配置静态网站托管
+aws s3 website s3://inspira-frontend-<your-unique-id> \
+  --index-document index.html \
+  --error-document index.html
+```
+
+#### 1.3 创建 CloudFront 分发
+
+```bash
+aws cloudfront create-distribution \
+  --origin-domain-name inspira-frontend-<your-unique-id>.s3.ap-southeast-1.amazonaws.com \
+  --default-root-object index.html
+```
+
+或者直接在 AWS Console 里点：
+1. CloudFront → Create Distribution
+2. Origin domain: 选你的 S3 bucket
+3. **OAC (Origin Access Control)** → Create new → 选 S3
+4. Default root object: [index.html](file:///f:/CS5224/Inspira/frontend/index.html)
+5. **Custom error response**: 403/404 都 redirect 到 [/index.html](file:///f:/CS5224/Inspira/frontend/index.html)（SPA 路由需要）
+
+> [!NOTE]
+> CloudFront 会给你一个 `xxx.cloudfront.net` 域名，先用这个测试。后面再绑自定义域名。
+
+---
+
+### Phase 2: 用户认证 — Amazon Cognito
+
+**耗时：~2-3 小时**
+
+#### 2.1 创建 Cognito User Pool
+
+```bash
+aws cognito-idp create-user-pool \
+  --pool-name InspiraUserPool \
+  --auto-verified-attributes email \
+  --username-attributes email \
+  --policies '{"PasswordPolicy":{"MinimumLength":8,"RequireUppercase":true,"RequireLowercase":true,"RequireNumbers":true,"RequireSymbols":false}}'
+```
+
+#### 2.2 创建 App Client
+
+```bash
+aws cognito-idp create-user-pool-client \
+  --user-pool-id <YOUR_POOL_ID> \
+  --client-name InspiraWebApp \
+  --explicit-auth-flows ALLOW_USER_SRP_AUTH ALLOW_REFRESH_TOKEN_AUTH \
+  --supported-identity-providers COGNITO \
+  --callback-urls '["https://your-cloudfront-domain.com/callback"]' \
+  --logout-urls '["https://your-cloudfront-domain.com"]'
+```
+
+#### 2.3 前端集成 Cognito
+
+安装 AWS Amplify（只用它的 Auth 模块，不用全家桶）：
+
+```bash
+cd frontend
+npm install aws-amplify @aws-amplify/ui-react
+```
+
+创建 `src/config/aws-config.ts`：
+
+```typescript
+export const awsConfig = {
+  Auth: {
+    Cognito: {
+      userPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID,
+      userPoolClientId: import.meta.env.VITE_COGNITO_CLIENT_ID,
+      loginWith: {
+        email: true,
+      },
+    },
+  },
+};
+```
+
+在 [main.tsx](file:///f:/CS5224/Inspira/frontend/src/main.tsx) 初始化：
+
+```typescript
+import { Amplify } from "aws-amplify";
+import { awsConfig } from "./config/aws-config";
+
+Amplify.configure(awsConfig);
+```
+
+创建登录页面 `src/components/LoginPage.tsx`：
+
+```tsx
+import { Authenticator } from "@aws-amplify/ui-react";
+import "@aws-amplify/ui-react/styles.css";
+
+export function LoginPage({ children }: { children: React.ReactNode }) {
+  return (
+    <Authenticator>
+      {({ signOut, user }) => (
+        <div>
+          <header>
+            <span>Welcome, {user?.signInDetails?.loginId}</span>
+            <button onClick={signOut}>Sign Out</button>
+          </header>
+          {children}
+        </div>
+      )}
+    </Authenticator>
+  );
+}
+```
+
+在 [App.tsx](file:///f:/CS5224/Inspira/frontend/src/App.tsx) 里包一下：
+
+```tsx
+import { LoginPage } from "./components/LoginPage";
+
+function App() {
+  return (
+    <LoginPage>
+      {/* 你现有的页面内容 */}
+    </LoginPage>
+  );
+}
+```
+
+> [!TIP]
+> `<Authenticator>` 组件自带注册/登录/忘记密码/邮箱验证全套 UI，你不需要自己写。样式可以通过 CSS variables 自定义。
+
+#### 2.4 API 请求带 Token
+
+```typescript
+import { fetchAuthSession } from "aws-amplify/auth";
+
+async function callApi(endpoint: string, body: any) {
+  const session = await fetchAuthSession();
+  const token = session.tokens?.idToken?.toString();
+
+  return fetch(`${import.meta.env.VITE_API_URL}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+```
+
+---
+
+### Phase 3: 后端部署到 Lambda + API Gateway
+
+**耗时：~3-4 小时**
+
+#### 3.1 安装 Mangum（Lambda 适配器）
+
+```bash
+pip install mangum
+```
+
+#### 3.2 修改 [main.py](file:///f:/CS5224/Inspira/backend/main.py)
+
+```python
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from mangum import Mangum
+import boto3
+import os
+
+app = FastAPI(title="Inspira Backend API")
+
+# CORS - 允许 CloudFront 域名
+origins = [
+    os.getenv("FRONTEND_URL", "http://localhost:5173"),
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# S3 client for file storage
+s3 = boto3.client("s3")
+UPLOAD_BUCKET = os.getenv("UPLOAD_BUCKET", "inspira-user-uploads")
+
+# DynamoDB for metadata
+dynamodb = boto3.resource("dynamodb")
+files_table = dynamodb.Table(os.getenv("FILES_TABLE", "inspira-files"))
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """上传文件到 S3 + 元数据存 DynamoDB"""
+    # TODO: 从 Cognito token 拿 user_id
+    user_id = "demo-user"
+
+    # 上传到 S3
+    s3_key = f"uploads/{user_id}/{file.filename}"
+    s3.upload_fileobj(file.file, UPLOAD_BUCKET, s3_key)
+
+    # 元数据存 DynamoDB
+    files_table.put_item(Item={
+        "user_id": user_id,
+        "filename": file.filename,
+        "s3_key": s3_key,
+        "content_type": file.content_type,
+    })
+
+    return {"message": "Uploaded", "s3_key": s3_key}
+
+
+@app.post("/api/chat")
+async def chat_endpoint(request: ChatRequest):
+    """调 LLM 的 endpoint"""
+    # OpenAI API key 从 Secrets Manager 或环境变量拿
+    # ...你现有的 reasoning_app.invoke(inputs) 逻辑
+    pass
+
+
+# Lambda handler
+handler = Mangum(app, lifespan="off")
+```
+
+#### 3.3 用 SAM 或 CDK 部署
+
+推荐用 **AWS SAM**（比手动 zip 简单）：
+
+创建 `backend/template.yaml`：
+
+```yaml
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Inspira Backend API
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.11
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        UPLOAD_BUCKET: !Ref UploadBucket
+        FILES_TABLE: !Ref FilesTable
+        OPENAI_API_KEY: "{{resolve:secretsmanager:inspira/openai:SecretString:api_key}}"
+        FRONTEND_URL: !Sub "https://${CloudFrontDomain}"
+
+Resources:
+  # ========== API ==========
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - "*"
+
+  # ========== Lambda ==========
+  BackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: main.handler
+      CodeUri: .
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/{proxy+}
+            Method: ANY
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref UploadBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FilesTable
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:inspira/openai-*"
+
+  # ========== Storage ==========
+  UploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "inspira-uploads-${AWS::AccountId}"
+
+  FilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: inspira-files
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: filename
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+        - AttributeName: filename
+          KeyType: RANGE
+
+  # ========== Cognito ==========
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: InspiraUserPool
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: InspiraWebClient
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+```
+
+#### 3.4 部署命令
+
+```bash
+cd backend
+
+# 首次初始化
+sam init  # 如果还没有配置
+
+# Build（会自动安装 requirements.txt 的依赖到 Lambda 包）
+sam build
+
+# 部署
+sam deploy --guided
+# 按提示填：
+#   Stack name: inspira-backend
+#   Region: ap-southeast-1
+#   Confirm changeset: Y
+```
+
+> [!WARNING]
+> **Lambda 部署包大小限制**：直接压缩包上限 50MB，层(Layer) 250MB 解压后。你的 [requirements.txt](file:///f:/CS5224/Inspira/backend/requirements.txt) 里有 `torch` 和 `sentence-transformers`，这些**巨大**，不适合塞进 Lambda。解决方案见下面。
+
+#### 3.5 处理大依赖问题
+
+`torch` + `sentence-transformers` 太大（>1GB），不可能直接放 Lambda。有三种方案：
+
+| 方案 | 说明 | 推荐度 |
+|------|------|--------|
+| **A) 全用 API** | Embedding 用 OpenAI `text-embedding-3-small`，不用本地模型 | ⭐⭐⭐⭐⭐ |
+| **B) Lambda Container Image** | 用 Docker image 部署 Lambda（上限 10GB） | ⭐⭐⭐ |
+| **C) 混合架构** | Lambda 处理轻量请求，Embedding 用 SageMaker Endpoint | ⭐⭐ |
+
+**推荐方案 A**：把 `jina-clip-v1` 本地推理换成 API 调用：
+
+```python
+# backend/rag_engine/embedder.py - 改造后
+import openai
+import os
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def embed_text(text: str) -> list[float]:
+    """用 OpenAI API 做文本 embedding"""
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text
+    )
+    return response.data[0].embedding
+
+def embed_image(image_path: str) -> list[float]:
+    """用 Gemini Vision / GPT-4o 生成图片描述后再 embed"""
+    # 1. 先用 vision 模型描述图片
+    description = describe_image(image_path)
+    # 2. 再 embed 描述文字
+    return embed_text(description)
+```
+
+然后从 [requirements.txt](file:///f:/CS5224/Inspira/backend/requirements.txt) 移除：
+```diff
+- torch
+- sentence-transformers
+- einops
++ openai
++ boto3
+```
+
+---
+
+### Phase 4: 文件上传 + 数据库存储
+
+**耗时：~2 小时**
+
+#### 4.1 前端上传组件调后端
+
+```typescript
+// src/hooks/useUpload.ts
+import { fetchAuthSession } from "aws-amplify/auth";
+
+export async function uploadFile(file: File) {
+  const session = await fetchAuthSession();
+  const token = session.tokens?.idToken?.toString();
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${import.meta.env.VITE_API_URL}/api/upload`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  return res.json();
+}
+```
+
+#### 4.2 DynamoDB 表设计
+
+```
+inspira-files 表:
+├── PK: user_id (String)        # Cognito sub
+├── SK: filename (String)       # 文件名
+├── s3_key (String)             # S3 路径
+├── content_type (String)       # MIME type
+├── extracted_text (String)     # 提取的文本
+├── embedded (Boolean)          # 是否已入向量库
+├── created_at (String)         # ISO timestamp
+└── file_size (Number)          # 字节数
+
+inspira-sessions 表 (可选, 存对话历史):
+├── PK: user_id (String)
+├── SK: session_id#timestamp
+├── question (String)
+├── answer (String)
+└── reasoning_trace (List)
+```
+
+---
+
+### Phase 5: LLM 连接
+
+#### 5.1 存 API Key 到 Secrets Manager
+
+```bash
+aws secretsmanager create-secret \
+  --name inspira/openai \
+  --secret-string '{"api_key":"sk-your-key-here"}'
+```
+
+#### 5.2 后端读取
+
+```python
+import boto3
+import json
+
+def get_secret(secret_name: str) -> dict:
+    client = boto3.client("secretsmanager")
+    response = client.get_secret_value(SecretId=secret_name)
+    return json.loads(response["SecretString"])
+
+# 在 model_client.py 里
+secrets = get_secret("inspira/openai")
+openai_client = openai.OpenAI(api_key=secrets["api_key"])
+```
+
+#### 5.3 Lambda 超时问题 — SSE Streaming 的替代方案
+
+Lambda + API Gateway 不支持 SSE streaming。两个选项：
+
+| 方案 | 如何实现 | 复杂度 |
+|------|---------|--------|
+| **WebSocket via API Gateway** | 建 WebSocket API，Lambda 推送中间步骤 | 中等 |
+| **异步轮询** | POST `/api/chat` 返回 `task_id`，前端轮询 `GET /api/chat/{task_id}/status` | 简单 |
+
+**推荐异步轮询**（简单够用）：
+
+```python
+import uuid
+from datetime import datetime
+
+# DynamoDB tasks table
+tasks_table = dynamodb.Table("inspira-tasks")
+
+@app.post("/api/chat")
+async def start_chat(request: ChatRequest):
+    task_id = str(uuid.uuid4())
+    # 把任务丢到 SQS 或直接异步处理
+    tasks_table.put_item(Item={
+        "task_id": task_id,
+        "status": "processing",
+        "created_at": datetime.utcnow().isoformat(),
+        "question": request.question,
+    })
+    # 触发异步 Lambda 执行推理
+    # ...
+    return {"task_id": task_id}
+
+@app.get("/api/chat/{task_id}")
+async def get_chat_result(task_id: str):
+    item = tasks_table.get_item(Key={"task_id": task_id})["Item"]
+    return item  # { status, answer, reasoning_trace, ... }
+```
+
+---
+
+## 📦 环境变量清单
+
+### 前端 `.env`
+
+```bash
+VITE_API_URL=https://xxx.execute-api.ap-southeast-1.amazonaws.com/prod
+VITE_COGNITO_USER_POOL_ID=ap-southeast-1_XXXXXX
+VITE_COGNITO_CLIENT_ID=xxxxxxxxxxxxxxxx
+```
+
+### 后端 (Lambda 环境变量 / template.yaml)
+
+```bash
+UPLOAD_BUCKET=inspira-uploads-123456789
+FILES_TABLE=inspira-files
+OPENAI_API_KEY=  # 从 Secrets Manager resolve
+FRONTEND_URL=https://xxx.cloudfront.net
+```
+
+---
+
+## 💰 预估费用（小流量/开发阶段）
+
+| 服务 | 费用 | 备注 |
+|------|------|------|
+| S3 (前端) | ~$0.023/GB/月 | 几百 KB 静态文件，忽略不计 |
+| CloudFront | ~$0.085/GB 出站 | 免费套餐 1TB/月 |
+| Lambda | 100 万次免费/月 | 开发阶段基本免费 |
+| API Gateway | 100 万次 $1 | 开发阶段免费 |
+| DynamoDB | 25GB 免费 | On-demand 模式 |
+| S3 (用户文件) | ~$0.023/GB/月 | 按需 |
+| Cognito | 50,000 MAU 免费 | 够用 |
+| Secrets Manager | $0.40/secret/月 | 1-2 个 secret |
+| **总计** | **~$1-5/月** | 开发阶段几乎免费 |
+
+---
+
+## ✅ 实施顺序 Checklist
+
+```
+Phase 1: 前端上线 (~1h)
+  □ npm run build
+  □ 创建 S3 bucket，上传 dist/
+  □ 创建 CloudFront distribution
+  □ 验证：浏览器打开 CloudFront URL 能看到页面
+
+Phase 2: 用户认证 (~2-3h)
+  □ 创建 Cognito User Pool + App Client
+  □ 前端安装 aws-amplify
+  □ 创建 aws-config.ts
+  □ 包装 LoginPage 组件
+  □ 验证：能注册、登录、拿到 token
+
+Phase 3: 后端部署 (~3-4h)
+  □ requirements.txt 去掉 torch 等大包，加 openai boto3 mangum
+  □ embedder.py 改用 OpenAI API
+  □ main.py 加 Mangum handler
+  □ 写 template.yaml (SAM)
+  □ sam build && sam deploy --guided
+  □ 验证：curl API Gateway URL/api/health
+
+Phase 4: 文件存储 (~2h)
+  □ 前端 upload 组件调 /api/upload
+  □ 后端写 S3 + DynamoDB
+  □ 验证：上传文件后，S3 和 DynamoDB 有数据
+
+Phase 5: LLM 连接 (~2h)
+  □ Secrets Manager 存 API key
+  □ model_client.py 读 secret
+  □ /api/chat endpoint 调通
+  □ 验证：前端发问题，后端返回 LLM 回答
+
+Phase 6: 域名 + HTTPS (可选, ~1h)
+  □ Route53 注册/转入域名
+  □ ACM 签发证书
+  □ CloudFront 绑定自定义域名
+```
+
+---
+
+## 🔀 架构对比：你的 DEV_README vs 这个方案
+
+| | DEV_README (ECS Fargate) | 本方案 (纯 Serverless) |
+|--|-------------------------|----------------------|
+| 后端运行方式 | 容器 24/7 运行 | Lambda 按请求触发 |
+| 月费（低流量） | ~$30-50（Fargate 最低） | ~$1-5 |
+| 冷启动 | 无 | 有（3-5s，可用 Provisioned Concurrency 解决） |
+| SSE Streaming | ✅ 天然支持 | ❌ 需要 WebSocket 或轮询 |
+| 部署复杂度 | 中等（Docker + ECR + ECS） | 低（SAM 一键部署） |
+| 适合阶段 | 上线后有稳定用户 | **开发阶段 / Demo / 课程作业** |
+
+> [!IMPORTANT]
+> 如果这是 CS5224 课程作业，纯 Serverless 方案更合适——省钱、能展示更多 AWS 服务、架构图更好看。如果后期需要 SSE streaming，可以单独把 `/api/chat` 迁移到 Fargate，其他保持 Lambda。
