@@ -1,32 +1,44 @@
 """
 Inspira Backend API - OpenAI-powered version.
-Handles file upload (PDF/PPT/Audio/Image) → text extraction → embedding storage → RAG chat.
+Handles file upload (PDF/PPT/Audio/Image) -> text extraction -> embedding storage -> RAG chat.
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from dotenv import load_dotenv
-import shutil
 import os
-from typing import List
+import shutil
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from mangum import Mangum
+from pydantic import BaseModel
 
 # Load .env before anything else
 load_dotenv()
 
-from backend.file_processor.pdf_handler import extract_text_from_pdf
-from backend.file_processor.ppt_handler import extract_text_from_pptx
-from backend.file_processor.audio_handler import AudioTranscriber
-from backend.file_processor.image_handler import ImageDescriber
-from backend.file_processor.text_splitter import split_text
-from backend.rag_engine.vector_store import InspiraVault
+from file_processor.audio_handler import AudioTranscriber
+from file_processor.image_handler import ImageDescriber
+from file_processor.pdf_handler import extract_text_from_pdf
+from file_processor.ppt_handler import extract_text_from_pptx
+from file_processor.text_splitter import split_text
+from rag_engine.vector_store import InspiraVault
 from openai import OpenAI
 
 app = FastAPI(title="Inspira Backend API")
 
+
+def get_allowed_origins() -> list[str]:
+    configured = os.getenv("ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL", "")
+    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    if not origins:
+        origins = [
+            "http://localhost:3000",
+            "http://localhost:5173",
+        ]
+    return origins
+
 # --- CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,11 +68,13 @@ class ChatResponse(BaseModel):
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "message": "Inspira Backend (OpenAI) is running 🚀"}
+    return {"status": "ok", "message": "Inspira Backend (OpenAI) is running"}
 
 
 @app.post("/upload")
+@app.post("/api/upload")
 async def upload_file(
     file: UploadFile = File(...),
     stack_id: str = Form(...),
@@ -137,6 +151,7 @@ async def upload_file(
 
 
 @app.post("/chat", response_model=ChatResponse)
+@app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     """
     RAG-powered chat: retrieve relevant context from the stack, then generate answer.
@@ -192,6 +207,10 @@ Retrieved Context:
         return {"answer": f"Error: {str(e)}"}
 
 
+handler = Mangum(app, lifespan="off")
+
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -3,9 +3,9 @@ Vector store using ChromaDB with OpenAI embeddings.
 Simplified: text-only storage (images are described as text then stored).
 """
 import chromadb
-from backend.rag_engine.embedder import InspiraEmbedder
-from typing import Optional
 import uuid
+
+from rag_engine.embedder import InspiraEmbedder
 
 
 class InspiraVault:

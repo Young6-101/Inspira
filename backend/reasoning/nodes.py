@@ -1,6 +1,6 @@
-from backend.rag_engine.retriever import InspiraRetriever
-from backend.reasoning.state import GraphState
-from backend.reasoning.model_client import get_llm
+from rag_engine.retriever import InspiraRetriever
+from reasoning.model_client import get_llm
+from reasoning.state import GraphState
 from langchain_core.prompts import ChatPromptTemplate
 
 def retrieve_node(state: GraphState):

@@ -7,8 +7,8 @@ This module orchestrates the RAG-based inspiration generation pipeline:
 """
 
 from langgraph.graph import StateGraph, END
-from backend.reasoning.state import GraphState
-from backend.reasoning.nodes import retrieve_node, generate_node
+from reasoning.nodes import generate_node, retrieve_node
+from reasoning.state import GraphState
 
 # Build the Workflow
 workflow = StateGraph(GraphState)

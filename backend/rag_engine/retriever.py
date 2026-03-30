@@ -1,5 +1,5 @@
-from backend.rag_engine.vector_store import InspiraVault
-from backend.file_processor.image_handler import ImageDescriber
+from file_processor.image_handler import ImageDescriber
+from rag_engine.vector_store import InspiraVault
 
 
 class InspiraRetriever:
