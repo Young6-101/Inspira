@@ -9,26 +9,34 @@ import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from moto import mock_aws
+try:
+    from .config import config
+except ImportError:
+    from config import config
 
 class DatabaseManager:
     """
     Unified database manager that works in both local and AWS environments
+    Automatically uses correct table names based on deployment environment
     """
     
     def __init__(self):
-        self.is_local = not bool(os.getenv('AWS_REGION'))
+        self.config = config
+        self.table_names = config.table_names
         
-        if self.is_local:
+        if config.is_aws:
+            # Production AWS DynamoDB
+            print(f"Using AWS DynamoDB in {config.aws_region}")
+            print(f"Table names: {self.table_names}")
+            self.dynamodb = config.get_boto3_session()
+        else:
             # Local development with mocked DynamoDB
             print("Using local DynamoDB (mocked)")
+            print(f"Table names: {self.table_names}")
             self.mock = mock_aws()
             self.mock.start()
-            self.dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+            self.dynamodb = config.get_boto3_session()
             self._create_local_tables()
-        else:
-            # Production AWS DynamoDB
-            print("Using AWS DynamoDB")
-            self.dynamodb = boto3.resource('dynamodb')
     
     def _create_local_tables(self):
         """Create tables for local development"""
@@ -60,7 +68,7 @@ class DatabaseManager:
                            embedding_id: Optional[str] = None) -> Dict[str, Any]:
         """Store file metadata in inspira-files table"""
         
-        table = self.dynamodb.Table('inspira-files')
+        table = self.dynamodb.Table(self.table_names['files'])
         
         item = {
             'user_id': user_id,
@@ -82,7 +90,7 @@ class DatabaseManager:
     
     def get_user_files(self, user_id: str) -> List[Dict[str, Any]]:
         """Get all files for a user"""
-        table = self.dynamodb.Table('inspira-files')
+        table = self.dynamodb.Table(self.table_names['files'])
         
         response = table.query(
             KeyConditionExpression='user_id = :uid',
@@ -93,7 +101,7 @@ class DatabaseManager:
     
     def update_file_embedding_status(self, user_id: str, filename: str, embedding_id: str):
         """Mark file as embedded with embedding ID"""
-        table = self.dynamodb.Table('inspira-files')
+        table = self.dynamodb.Table(self.table_names['files'])
         
         table.update_item(
             Key={'user_id': user_id, 'filename': filename},
@@ -115,7 +123,7 @@ class DatabaseManager:
                       pattern_analysis: Optional[str] = None) -> str:
         """Store a chat session"""
         
-        table = self.dynamodb.Table('inspira-sessions')
+        table = self.dynamodb.Table(self.table_names['sessions'])
         session_id = f"session_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         
         item = {
@@ -136,7 +144,7 @@ class DatabaseManager:
     
     def get_user_sessions(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent sessions for a user"""
-        table = self.dynamodb.Table('inspira-sessions')
+        table = self.dynamodb.Table(self.table_names['sessions'])
         
         response = table.query(
             KeyConditionExpression='user_id = :uid',
@@ -151,7 +159,7 @@ class DatabaseManager:
     
     def create_task(self, user_id: str, question: str) -> str:
         """Create async task for long-running operations"""
-        table = self.dynamodb.Table('inspira-tasks')
+        table = self.dynamodb.Table(self.table_names['tasks'])
         task_id = str(uuid.uuid4())
         
         table.put_item(Item={
@@ -166,7 +174,7 @@ class DatabaseManager:
     
     def update_task_result(self, task_id: str, result: str, status: str = 'completed'):
         """Update task with result"""
-        table = self.dynamodb.Table('inspira-tasks')
+        table = self.dynamodb.Table(self.table_names['tasks'])
         
         table.update_item(
             Key={'task_id': task_id},
@@ -184,7 +192,7 @@ class DatabaseManager:
     
     def update_task_error(self, task_id: str, error_message: str):
         """Update task with error"""
-        table = self.dynamodb.Table('inspira-tasks')
+        table = self.dynamodb.Table(self.table_names['tasks'])
         
         table.update_item(
             Key={'task_id': task_id},
@@ -199,7 +207,7 @@ class DatabaseManager:
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get task status"""
-        table = self.dynamodb.Table('inspira-tasks')
+        table = self.dynamodb.Table(self.table_names['tasks'])
         
         response = table.get_item(Key={'task_id': task_id})
         return response.get('Item')
