@@ -7,11 +7,17 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from pydantic import BaseModel
+
+# python-dotenv is useful for local development, but Lambda should still boot if it is absent.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
 
 # Load .env before anything else
 load_dotenv()
@@ -45,6 +51,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def strip_stage_prefix(request: Request, call_next):
+    """
+    API Gateway stage prefixes can leak into the ASGI path.
+    Normalizing here keeps local and deployed routes aligned.
+    """
+    path = request.scope.get("path", "")
+    if path == "/prod":
+        request.scope["path"] = "/"
+    elif path.startswith("/prod/"):
+        request.scope["path"] = path[len("/prod"):]
+    return await call_next(request)
 
 # --- Singletons ---
 vault = InspiraVault()

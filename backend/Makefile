@@ -13,7 +13,7 @@ build-BackendFunction:
 		--python-version 3.11 \
 		--only-binary=:all: \
 		-r requirements.txt
-	cp -R main.py settings.py file_processor llm rag_engine reasoning training "$(ARTIFACTS_DIR)"/
+	cp -R main.py settings.py file_processor llm rag_engine "$(ARTIFACTS_DIR)"/
 
 clean:
 	rm -rf "$(ARTIFACTS_DIR)"
