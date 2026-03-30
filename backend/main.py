@@ -4,6 +4,8 @@ Handles file upload (PDF/PPT/Audio/Image) -> text extraction -> embedding storag
 """
 import os
 import shutil
+import tempfile
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -39,7 +41,7 @@ def get_allowed_origins() -> list[str]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -54,6 +56,21 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".webm", ".mp4"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp"}
 TEXT_EXTENSIONS = {".txt", ".md"}
+TMP_DIR = Path(os.getenv("TMP_DIR", tempfile.gettempdir()))
+
+
+def build_temp_path(filename: str) -> Path:
+    safe_name = os.path.basename(filename) or "upload"
+    suffix = Path(safe_name).suffix
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        delete=False,
+        dir=TMP_DIR,
+        prefix="inspira-",
+        suffix=suffix,
+    )
+    handle.close()
+    return Path(handle.name)
 
 
 class ChatRequest(BaseModel):
@@ -89,46 +106,46 @@ async def upload_file(
     try:
         filename = file.filename or "unknown"
         ext = os.path.splitext(filename.lower())[1]
-        temp_path = f"temp_{filename}"
-
-        # Save to disk
-        with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        temp_path = build_temp_path(filename)
 
         text_content = ""
+        try:
+            # Save to disk once, then route to the right processor.
+            with open(temp_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
 
-        # --- PDF ---
-        if ext == ".pdf":
-            text_content = extract_text_from_pdf(temp_path)
+            # --- PDF ---
+            if ext == ".pdf":
+                text_content = extract_text_from_pdf(str(temp_path))
 
-        # --- PPT ---
-        elif ext in (".pptx", ".ppt"):
-            text_content = extract_text_from_pptx(temp_path, describe_images=False)
+            # --- PPT ---
+            elif ext in (".pptx", ".ppt"):
+                text_content = extract_text_from_pptx(str(temp_path), describe_images=False)
 
-        # --- Audio ---
-        elif ext in AUDIO_EXTENSIONS:
-            text_content = audio_transcriber.transcribe(temp_path)
+            # --- Audio ---
+            elif ext in AUDIO_EXTENSIONS:
+                text_content = audio_transcriber.transcribe(str(temp_path))
 
-        # --- Image → describe with GPT-4o vision, then store description as text ---
-        elif ext in IMAGE_EXTENSIONS:
-            with open(temp_path, "rb") as f:
-                image_bytes = f.read()
-            text_content = image_describer.describe_image_bytes(
-                image_bytes, filename,
-                prompt="Describe this image in detail. Focus on key visual elements, text content, diagrams, charts, patterns, colors, and any notable characteristics."
-            )
+            # --- Image → describe with GPT-4o vision, then store description as text ---
+            elif ext in IMAGE_EXTENSIONS:
+                with open(temp_path, "rb") as f:
+                    image_bytes = f.read()
+                text_content = image_describer.describe_image_bytes(
+                    image_bytes,
+                    filename,
+                    prompt="Describe this image in detail. Focus on key visual elements, text content, diagrams, charts, patterns, colors, and any notable characteristics.",
+                )
 
-        # --- Plain text ---
-        elif ext in TEXT_EXTENSIONS:
-            with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
-                text_content = f.read()
+            # --- Plain text ---
+            elif ext in TEXT_EXTENSIONS:
+                with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
+                    text_content = f.read()
 
-        else:
-            os.remove(temp_path)
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
-
-        # Cleanup temp file
-        os.remove(temp_path)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
         if not text_content or not text_content.strip():
             return {"filename": filename, "message": "File uploaded but no content extracted.", "chunks": 0}

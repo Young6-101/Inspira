@@ -2,6 +2,7 @@
 Vector store using ChromaDB with OpenAI embeddings.
 Simplified: text-only storage (images are described as text then stored).
 """
+import os
 import chromadb
 import uuid
 
@@ -9,7 +10,9 @@ from rag_engine.embedder import InspiraEmbedder
 
 
 class InspiraVault:
-    def __init__(self, db_path="./inspira_db"):
+    def __init__(self, db_path: str | None = None):
+        db_path = db_path or os.getenv("VECTOR_DB_PATH", "./inspira_db")
+        os.makedirs(db_path, exist_ok=True)
         self.client = chromadb.PersistentClient(path=db_path)
         self.embedder = InspiraEmbedder()
 

@@ -6,18 +6,19 @@ Globals:
   Function:
     Runtime: python3.11
     Timeout: 30
-    MemorySize: 1024
+    MemorySize: 1536
     Architectures:
       - x86_64
+    EphemeralStorage:
+      Size: 1024
     Environment:
       Variables:
-        FRONTEND_URL: !Ref FrontendUrl
+        ALLOWED_ORIGINS: "*"
+        TMP_DIR: /tmp
+        VECTOR_DB_PATH: /tmp/inspira_db
         OPENAI_API_KEY: !Ref OpenAiApiKey
 
 Parameters:
-  FrontendUrl:
-    Type: String
-    Default: http://localhost:5173
   OpenAiApiKey:
     Type: String
     NoEcho: true
@@ -29,10 +30,9 @@ Resources:
       StageName: prod
       CorsConfiguration:
         AllowOrigins:
-          - !Ref FrontendUrl
+          - "*"
         AllowHeaders:
-          - Authorization
-          - Content-Type
+          - "*"
         AllowMethods:
           - GET
           - POST

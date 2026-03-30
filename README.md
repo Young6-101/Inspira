@@ -82,6 +82,10 @@ npm install
 npm run dev
 ```
 
+## Cloud Demo
+
+See [`CLOUD_DEMO.md`](./CLOUD_DEMO.md) for the shortest path to a cloud demo on AWS.
+
 ## Notes
 
 ### PyTorch Version Requirements

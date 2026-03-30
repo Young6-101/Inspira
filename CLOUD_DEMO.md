@@ -1,0 +1,74 @@
+# Cloud Demo Runbook
+
+This repo is currently set up for the shortest path to a cloud demo:
+- Backend: FastAPI on AWS Lambda behind API Gateway via AWS SAM
+- Frontend: Vite static app on AWS Amplify Hosting
+
+## 1. Install tools
+
+Install the AWS CLI and AWS SAM CLI, then verify them:
+
+```bash
+aws --version
+sam --version
+```
+
+Official install docs:
+- AWS CLI: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+- AWS SAM CLI: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+
+## 2. Configure AWS credentials
+
+Use an IAM user or role with permissions for Lambda, API Gateway, CloudFormation, IAM, and S3:
+
+```bash
+aws configure
+```
+
+## 3. Deploy backend
+
+From `backend/`:
+
+```bash
+sam build
+sam deploy --guided
+```
+
+Suggested guided values:
+- Stack name: `inspira-backend`
+- Region: `ap-southeast-1`
+- `OpenAiApiKey`: your OpenAI key
+- Confirm changeset: `Y`
+- Save arguments: `Y`
+
+After deploy, copy the `ApiUrl` output.
+
+## 4. Deploy frontend
+
+From `frontend/`:
+
+```bash
+npm install
+cp .env.cloud.example .env.production
+npm run build
+```
+
+For the fastest demo, create an Amplify app and deploy the `dist/` output with "Deploy without Git".
+
+Set frontend env values before build:
+- `VITE_API_URL=<ApiUrl from backend>`
+- `VITE_SKIP_AUTH=true`
+
+If you want authentication later, set `VITE_SKIP_AUTH=false` and wire Cognito JWT authorizer into API Gateway.
+
+## 5. Update backend CORS if needed
+
+This template defaults to permissive CORS for demo use. If you want to tighten it later, restrict `ALLOWED_ORIGINS` and the SAM `CorsConfiguration`.
+
+## 6. Smoke test
+
+```bash
+curl <ApiUrl>/api/health
+```
+
+Then open the frontend URL, upload a small file, and send a chat question.
