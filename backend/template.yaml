@@ -40,6 +40,8 @@ Resources:
 
   BackendFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
     Properties:
       CodeUri: .
       Handler: main.handler

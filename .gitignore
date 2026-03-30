@@ -82,6 +82,8 @@ Thumbs.db
 # Build artifacts
 # ========================
 build/
+.aws-sam/
+.pip-cache/
 
 # ========================
 # Jupyter Notebook
