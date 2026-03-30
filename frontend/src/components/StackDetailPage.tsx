@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Stack } from "../hooks/useStack";
+import { callApi, uploadApi } from "../utils/api";
 
 interface StackDetailPageProps {
     stack: Stack;
@@ -116,8 +117,6 @@ const FileIcon = ({ file, displayName, onRename }: { file: File; displayName: st
     );
 };
 
-const API_URL = "http://localhost:8000";
-
 const MODES = [
     { value: "patterns", label: "🔍 Find Patterns" },
     { value: "summarize", label: "📝 Summarize" },
@@ -155,7 +154,7 @@ export const StackDetailPage = ({ stack, onClose, updateFileCount }: StackDetail
         formData.append("file", file);
         formData.append("stack_id", stack.id);
         try {
-            const res = await fetch(`${API_URL}/upload`, { method: "POST", body: formData });
+            const res = await uploadApi("/api/upload", formData);
             const data = await res.json();
             console.log("Upload result:", data);
             return data;
@@ -173,11 +172,7 @@ export const StackDetailPage = ({ stack, onClose, updateFileCount }: StackDetail
         setIsSending(true);
 
         try {
-            const res = await fetch(`${API_URL}/chat`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ question: userMsg, stack_id: stack.id, mode, model }),
-            });
+            const res = await callApi("/api/chat", { question: userMsg, stack_id: stack.id, mode, model });
             const data = await res.json();
             setChatHistory(prev => [...prev, { role: 'ai', content: data.answer }]);
         } catch (err) {
