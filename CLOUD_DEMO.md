@@ -51,9 +51,11 @@ From `frontend/`:
 npm install
 cp .env.cloud.example .env.production
 npm run build
+cd dist
+zip -r ../inspira-frontend.zip .
 ```
 
-For the fastest demo, create an Amplify app and deploy the `dist/` output with "Deploy without Git".
+For the fastest demo, create an Amplify app and deploy `inspira-frontend.zip` with "Deploy without Git" -> "Drag and drop".
 
 Set frontend env values before build:
 - `VITE_API_URL=<ApiUrl from backend>`
