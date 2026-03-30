@@ -3,18 +3,18 @@ import shutil
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from backend.app.core.dependencies import (
+from ...core.dependencies import (
 	get_audio_transcriber,
 	get_image_describer,
 	get_vault,
 )
-from backend.app.api.schemas import UploadResponse
-from backend.file_processor.audio_handler import AudioTranscriber
-from backend.file_processor.image_handler import ImageDescriber
-from backend.file_processor.pdf_handler import extract_text_from_pdf
-from backend.file_processor.ppt_handler import extract_text_from_pptx
-from backend.file_processor.text_splitter import split_text
-from backend.rag_engine.vector_store import InspiraVault
+from ..schemas import UploadResponse
+from ....file_processor.audio_handler import AudioTranscriber
+from ....file_processor.image_handler import ImageDescriber
+from ....file_processor.pdf_handler import extract_text_from_pdf
+from ....file_processor.ppt_handler import extract_text_from_pptx
+from ....file_processor.text_splitter import split_text
+from ....rag_engine.vector_store import InspiraVault
 
 router = APIRouter()
 

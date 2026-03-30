@@ -4,9 +4,9 @@ import os
 
 from openai import OpenAI
 
-from backend.file_processor.audio_handler import AudioTranscriber
-from backend.file_processor.image_handler import ImageDescriber
-from backend.rag_engine.vector_store import InspiraVault
+from ...file_processor.audio_handler import AudioTranscriber
+from ...file_processor.image_handler import ImageDescriber
+from ...rag_engine.vector_store import InspiraVault
 
 
 _vault = InspiraVault()

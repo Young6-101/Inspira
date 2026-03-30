@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from backend.app.api.endpoints import chat, health, uploads
+from .endpoints import chat, health, uploads
 
 router = APIRouter()
 router.include_router(health.router, tags=["health"])

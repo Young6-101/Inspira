@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from openai import OpenAI
 
-from backend.app.core.dependencies import get_openai_client, get_vault
-from backend.app.api.schemas import ChatRequest, ChatResponse
-from backend.rag_engine.vector_store import InspiraVault
+from ...core.dependencies import get_openai_client, get_vault
+from ..schemas import ChatRequest, ChatResponse
+from ....rag_engine.vector_store import InspiraVault
 
 router = APIRouter()
 
