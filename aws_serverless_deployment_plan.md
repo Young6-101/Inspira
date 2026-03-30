@@ -12,13 +12,13 @@
 | 前端 | Vite + React 本地 dev | S3 + CloudFront 全球 CDN | S3, CloudFront |
 | 后端 API | FastAPI 本地跑 | Lambda + API Gateway (真 serverless) | Lambda, API Gateway |
 | 用户登录 | ❌ 没有 | Cognito 托管认证 | Cognito |
-| 文件存储 | ❌ 临时 temp 文件 | S3 持久存储 + DynamoDB 元数据 | S3, DynamoDB |
+| 文件存储 | ❌ 临时 temp 文件 | S3 持久存储 + DynamoDBclaude update 元数据 | S3, DynamoDB |
 | 向量数据库 | ChromaDB 本地文件 | 仍用 ChromaDB on EFS or 换 OpenSearch Serverless | EFS / OpenSearch |
-| LLM 调用 | 本地 Ollama | OpenAI API / Bedrock | Secrets Manager |
+| LLM 调用 | 本地 Ollama | OpenAI API / Bedrock | Secrets Manager |claude upclaude updatedate
 | 域名 HTTPS | ❌ | Route53 + ACM | Route53, ACM |
 
 ---
-
+claude update
 ## 🏗️ 推荐架构（纯 Serverless）
 
 你 DEV_README 里写的是 ECS Fargate 方案，但既然你说要 serverless，我推荐一个**更省钱、更简单**的纯 serverless 方案：

@@ -1,0 +1,22 @@
+# SAM configuration file for Inspira project
+version = 0.1
+
+[default]
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+stack_name = "inspira-database"
+s3_bucket = ""  # SAM will create bucket automatically
+s3_prefix = "inspira-database"
+region = "ap-southeast-1"  # Change this to your preferred region
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=dev"
+image_repositories = []
+
+[prod]
+[prod.deploy.parameters]
+stack_name = "inspira-database-prod"
+parameter_overrides = "Environment=prod"
