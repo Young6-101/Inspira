@@ -1,29 +1,23 @@
 """
-Embedding module using OpenAI API.
-Replaces local torch/sentence-transformers with OpenAI's text-embedding-3-small.
+Embedding module using Gemini API.
 """
-from openai import OpenAI
 import os
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from llm.gemini_client import embed_texts
 
 class InspiraEmbedder:
-    def __init__(self, model: str = "text-embedding-3-small"):
+    def __init__(self, model: str = "gemini-embedding-001"):
         self.model = model
+        self.output_dimensionality = int(os.getenv("GEMINI_EMBED_DIMENSION", "768"))
 
     def get_embeddings(self, text_chunks: list[str]) -> list[list[float]]:
-        """Batch embed text chunks via OpenAI API."""
-        print(f"--- [LOG] Embedding {len(text_chunks)} chunks via OpenAI ---")
-        response = client.embeddings.create(
+        """Batch embed text chunks via Gemini API."""
+        print(f"--- [LOG] Embedding {len(text_chunks)} chunks via Gemini ---")
+        return embed_texts(
+            text_chunks,
             model=self.model,
-            input=text_chunks,
+            output_dimensionality=self.output_dimensionality,
         )
-        return [item.embedding for item in response.data]
 
     def get_single_embedding(self, text: str) -> list[float]:
         """Embed a single text string."""
-        response = client.embeddings.create(
-            model=self.model,
-            input=[text],
-        )
-        return response.data[0].embedding
+        return self.get_embeddings([text])[0]

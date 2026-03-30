@@ -16,10 +16,10 @@ Globals:
         ALLOWED_ORIGINS: "*"
         TMP_DIR: /tmp
         VECTOR_DB_PATH: /tmp/inspira_db
-        OPENAI_API_KEY: !Ref OpenAiApiKey
+        GEMINI_API_KEY: !Ref GeminiApiKey
 
 Parameters:
-  OpenAiApiKey:
+  GeminiApiKey:
     Type: String
     NoEcho: true
 

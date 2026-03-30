@@ -1,22 +1,19 @@
 """
-Audio handler using OpenAI Whisper API.
-Replaces local faster-whisper model.
+Audio handler using Gemini audio understanding.
 """
-import os
 from pathlib import Path
-from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from llm.gemini_client import transcribe_audio_bytes
 
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".webm", ".mp4", ".mpeg", ".mpga"}
 
 
 class AudioTranscriber:
-    def __init__(self, model: str = "whisper-1"):
+    def __init__(self, model: str = "gemini-2.5-flash"):
         self.model = model
 
     def transcribe(self, audio_path: str, language: str | None = None) -> str:
-        """Transcribe audio file via OpenAI Whisper API."""
+        """Transcribe audio file via Gemini."""
         path = Path(audio_path)
         if not path.exists():
             print(f"--- [ERROR] Audio file not found: {audio_path} ---")
@@ -28,14 +25,21 @@ class AudioTranscriber:
 
         try:
             with open(audio_path, "rb") as audio_file:
-                kwargs = {"model": self.model, "file": audio_file}
-                if language:
-                    kwargs["language"] = language
+                audio_bytes = audio_file.read()
 
-                response = client.audio.transcriptions.create(**kwargs)
+            prompt = "Transcribe the audio verbatim. Return only the transcript."
+            if language:
+                prompt = f"Transcribe the audio in {language}. Return only the transcript."
 
-            print(f"--- [LOG] Transcribed {path.name}: {len(response.text)} chars ---")
-            return response.text
+            transcript = transcribe_audio_bytes(
+                audio_bytes,
+                filename=path.name,
+                prompt=prompt,
+                model=self.model,
+            )
+
+            print(f"--- [LOG] Transcribed {path.name}: {len(transcript)} chars ---")
+            return transcript
 
         except Exception as e:
             print(f"--- [ERROR] Transcription failed: {e} ---")

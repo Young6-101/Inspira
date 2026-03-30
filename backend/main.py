@@ -1,5 +1,5 @@
 """
-Inspira Backend API - OpenAI-powered version.
+Inspira Backend API - Gemini-powered version.
 Handles file upload (PDF/PPT/Audio/Image) -> text extraction -> embedding storage -> RAG chat.
 """
 import os
@@ -21,8 +21,8 @@ from file_processor.image_handler import ImageDescriber
 from file_processor.pdf_handler import extract_text_from_pdf
 from file_processor.ppt_handler import extract_text_from_pptx
 from file_processor.text_splitter import split_text
+from llm.gemini_client import generate_text, normalize_model_name
 from rag_engine.vector_store import InspiraVault
-from openai import OpenAI
 
 app = FastAPI(title="Inspira Backend API")
 
@@ -50,7 +50,6 @@ app.add_middleware(
 vault = InspiraVault()
 image_describer = ImageDescriber()
 audio_transcriber = AudioTranscriber()
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # --- File type detection ---
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".webm", ".mp4"}
@@ -77,7 +76,7 @@ class ChatRequest(BaseModel):
     question: str
     stack_id: str
     mode: str = "patterns"   # Added AI mode
-    model: str = "gpt-4o-mini" # Added chosen LLM
+    model: str = "gemini-2.5-flash" # Added chosen LLM
 
 
 class ChatResponse(BaseModel):
@@ -87,7 +86,7 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "message": "Inspira Backend (OpenAI) is running"}
+    return {"status": "ok", "message": "Inspira Backend (Gemini) is running"}
 
 
 @app.post("/upload")
@@ -126,7 +125,7 @@ async def upload_file(
             elif ext in AUDIO_EXTENSIONS:
                 text_content = audio_transcriber.transcribe(str(temp_path))
 
-            # --- Image → describe with GPT-4o vision, then store description as text ---
+            # --- Image → describe with Gemini vision, then store description as text ---
             elif ext in IMAGE_EXTENSIONS:
                 with open(temp_path, "rb") as f:
                     image_bytes = f.read()
@@ -206,18 +205,16 @@ CRITICAL INSTRUCTION:
 Retrieved Context:
 {context_text}"""
 
-        # 3. Call OpenAI with the chosen model
-        response = openai_client.chat.completions.create(
-            model=request.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.question},
-            ],
+        # 3. Call Gemini with the chosen model
+        response_text = generate_text(
+            request.question,
+            system_instruction=system_prompt,
+            model=normalize_model_name(request.model),
             temperature=0.7,
-            max_tokens=1000,
+            max_output_tokens=1000,
         )
 
-        return {"answer": response.choices[0].message.content}
+        return {"answer": response_text}
 
     except Exception as e:
         print(f"Error in chat: {e}")

@@ -19,10 +19,11 @@ Official install docs:
 
 ## 2. Configure AWS credentials
 
-Use an IAM user or role with permissions for Lambda, API Gateway, CloudFormation, IAM, and S3:
+Use the AWS CLI v2 sign-in flow or configured credentials with permissions for Lambda, API Gateway, CloudFormation, IAM, and S3:
 
 ```bash
-aws configure
+aws login --profile inspira-dev
+aws sts get-caller-identity --profile inspira-dev
 ```
 
 ## 3. Deploy backend
@@ -31,13 +32,13 @@ From `backend/`:
 
 ```bash
 sam build
-sam deploy --guided
+sam deploy --guided --profile inspira-dev
 ```
 
 Suggested guided values:
 - Stack name: `inspira-backend`
 - Region: `ap-southeast-1`
-- `OpenAiApiKey`: your OpenAI key
+- `GeminiApiKey`: your Gemini API key
 - Confirm changeset: `Y`
 - Save arguments: `Y`
 
@@ -62,6 +63,10 @@ Set frontend env values before build:
 - `VITE_SKIP_AUTH=true`
 
 If you want authentication later, set `VITE_SKIP_AUTH=false` and wire Cognito JWT authorizer into API Gateway.
+
+Gemini API docs:
+- API key setup: https://ai.google.dev/gemini-api/docs/api-key
+- Python SDK install: https://ai.google.dev/gemini-api/docs/downloads
 
 ## 5. Update backend CORS if needed
 

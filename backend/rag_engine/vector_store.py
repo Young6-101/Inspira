@@ -1,5 +1,5 @@
 """
-Vector store using ChromaDB with OpenAI embeddings.
+Vector store using ChromaDB with Gemini embeddings.
 Simplified: text-only storage (images are described as text then stored).
 """
 import os
