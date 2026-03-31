@@ -66,3 +66,54 @@ html {
   box-shadow: 8px 8px 0px #111;
   transform: translate(-4px, -4px);
 }
+
+.hero-word {
+  --tilt: 0deg;
+  transform: rotate(var(--tilt));
+  transform-origin: center;
+  transition: transform 0.25s ease;
+  will-change: transform;
+}
+
+.hero-word:hover {
+  animation: hero-word-float 1.1s ease-in-out infinite;
+}
+
+@keyframes hero-word-float {
+  0% {
+    transform: translateY(0) rotate(var(--tilt));
+  }
+  50% {
+    transform: translateY(-10px) rotate(calc(var(--tilt) + 2deg));
+  }
+  100% {
+    transform: translateY(0) rotate(var(--tilt));
+  }
+}
+
+.moving-wordbar-track {
+  display: flex;
+  width: max-content;
+  animation-name: moving-wordbar-scroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.moving-wordbar-track span {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.95rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+@keyframes moving-wordbar-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
