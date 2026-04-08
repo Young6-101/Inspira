@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 class GraphState(TypedDict):
     """
@@ -10,5 +10,13 @@ class GraphState(TypedDict):
         answer: The final generated answer from the LLM
     """
     question: str
-    context: list[str]
-    answer: str
+    stack_id: str
+    user_id: str
+    session_id: str
+    mode: str
+    model: str
+
+    context: NotRequired[list[str]]
+    stm_text: NotRequired[str]
+    mtm_text: NotRequired[str]
+    answer: NotRequired[str]

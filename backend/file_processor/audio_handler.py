@@ -5,8 +5,9 @@ Replaces local faster-whisper model.
 import os
 from pathlib import Path
 from openai import OpenAI
+from backend.settings import settings
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
 
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".webm", ".mp4", ".mpeg", ".mpga"}
 
@@ -24,6 +25,10 @@ class AudioTranscriber:
 
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             print(f"--- [ERROR] Unsupported audio format: {path.suffix} ---")
+            return ""
+
+        if client is None:
+            print("--- [WARN] OPENAI_API_KEY missing. Audio transcription is disabled in current mode. ---")
             return ""
 
         try:
