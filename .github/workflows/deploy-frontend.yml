@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, frontend ]
     paths:
-      - 'frontend v2/**'
+      - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: 'frontend v2'
+        working-directory: 'frontend'
     steps:
       - uses: actions/checkout@v4
 

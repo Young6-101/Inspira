@@ -1,0 +1,334 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(17, 17, 17, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17, 17, 17, 0.04) 1px, transparent 1px),
+    radial-gradient(circle at 20% 80%, rgba(255, 107, 91, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(0, 212, 170, 0.08) 0%, transparent 50%);
+  background-size: 40px 40px, 40px 40px, 100% 100%, 100% 100%;
+}
+
+#workspace-canvas {
+  background-color: #e5e5e0;
+  background-image: radial-gradient(#111 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.8;
+}
+
+.workspace-item {
+  position: absolute;
+  transition: box-shadow 0.2s, transform 0.2s;
+  cursor: grab;
+  user-select: none;
+  background: #ffffff;
+  border: 1px solid #111;
+  box-shadow: 4px 4px 0px #111;
+}
+
+.workspace-item:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #111;
+}
+
+.workspace-item.is-moving {
+  z-index: 50;
+  transform: translate(-4px, -4px) scale(1.02);
+  box-shadow: 12px 12px 0px rgba(17, 17, 17, 0.8);
+}
+
+.brutalist-button {
+  @apply bg-textBlack text-bgCream border border-textBlack uppercase tracking-widest font-medium;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.brutalist-button:hover {
+  background: #FF6B5B;
+  color: #111;
+  box-shadow: 4px 4px 0px #111;
+  transform: translate(-2px, -2px);
+}
+
+.brutalist-card {
+  @apply bg-white border border-textBlack;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.brutalist-card:hover {
+  box-shadow: 8px 8px 0px #111;
+  transform: translate(-4px, -4px);
+}
+
+.hero-word {
+  --tilt: 0deg;
+  --float-delay: 0s;
+  transform: rotate(var(--tilt));
+  transform-origin: 50% 82%;
+  animation: hero-word-sway 2.3s cubic-bezier(0.55, 0.06, 0.35, 0.95) infinite;
+  animation-delay: var(--float-delay);
+  will-change: transform;
+}
+
+@keyframes hero-word-sway {
+  0% {
+    transform: translateX(0) rotate(calc(var(--tilt) - 2.2deg));
+  }
+  25% {
+    transform: translateX(-2px) rotate(calc(var(--tilt) - 4deg));
+  }
+  50% {
+    transform: translateX(0) rotate(calc(var(--tilt) + 2.2deg));
+  }
+  75% {
+    transform: translateX(2px) rotate(calc(var(--tilt) + 4deg));
+  }
+  100% {
+    transform: translateX(0) rotate(calc(var(--tilt) - 2.2deg));
+  }
+}
+
+.moving-wordbar-track {
+  display: flex;
+  width: max-content;
+  animation-name: moving-wordbar-scroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.moving-wordbar-track span {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.95rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+@keyframes moving-wordbar-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.home-hero-surface {
+  background-color: #f4f4f0;
+  background-image:
+    linear-gradient(135deg, rgba(255, 107, 91, 0.03) 0%, rgba(255, 107, 91, 0) 38%, rgba(123, 97, 255, 0.025) 64%, rgba(0, 212, 170, 0.03) 100%),
+    radial-gradient(circle at 16% 82%, rgba(255, 107, 91, 0.05) 0%, rgba(255, 107, 91, 0) 46%),
+    radial-gradient(circle at 86% 16%, rgba(0, 212, 170, 0.045) 0%, rgba(0, 212, 170, 0) 44%),
+    linear-gradient(to right, rgba(17, 17, 17, 0.038) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17, 17, 17, 0.038) 1px, transparent 1px),
+    repeating-radial-gradient(circle at 0 0, rgba(17, 17, 17, 0.018) 0 0.7px, transparent 0.7px 3px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 42px 42px, 42px 42px, 8px 8px;
+  background-position: 0 0;
+}
+
+.home-hero-copy {
+  transform: translateY(clamp(16px, 4.6vh, 56px));
+}
+
+.hero-backdrop-wash {
+  display: none;
+}
+
+.hero-backdrop-wash--coral {
+  left: -12%;
+  bottom: -10%;
+  width: 34vw;
+  height: 34vw;
+  max-width: 440px;
+  max-height: 440px;
+  opacity: 0.84;
+  background: radial-gradient(circle at 52% 52%, rgba(255, 107, 91, 0.46) 0%, rgba(255, 107, 91, 0.22) 36%, rgba(255, 107, 91, 0) 78%);
+}
+
+.hero-backdrop-wash--electric {
+  right: -18%;
+  top: -16%;
+  width: 78vw;
+  height: 78vw;
+  max-width: 780px;
+  max-height: 780px;
+  opacity: 0.5;
+  background: radial-gradient(circle at 45% 45%, rgba(0, 212, 170, 0.42) 0%, rgba(0, 212, 170, 0.18) 34%, rgba(0, 212, 170, 0) 76%);
+}
+
+.hero-backdrop-wash--violet {
+  left: 20%;
+  bottom: -16%;
+  width: 54vw;
+  height: 24vw;
+  max-width: 800px;
+  max-height: 340px;
+  opacity: 0.5;
+  background: radial-gradient(circle at 48% 44%, rgba(123, 97, 255, 0.36) 0%, rgba(123, 97, 255, 0.14) 38%, rgba(123, 97, 255, 0) 80%);
+}
+
+.hero-backdrop-connectors {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: visible;
+}
+
+.hero-backdrop-connector-line {
+  fill: none;
+  stroke: rgba(17, 17, 17, 0.28);
+  stroke-width: 1.7;
+  stroke-dasharray: 4 10;
+  stroke-linecap: round;
+  animation: connector-dash-flow 20s linear infinite;
+}
+
+.hero-backdrop-connector-line--main {
+  stroke: rgba(17, 17, 17, 0.36);
+}
+
+.hero-backdrop-connector-line--faint {
+  stroke: rgba(17, 17, 17, 0.2);
+}
+
+@keyframes connector-dash-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -220;
+  }
+}
+
+
+.hero-backdrop-card {
+  position: absolute;
+  --card-width: 190px;
+  --photo-height: 110px;
+  width: var(--card-width);
+  border: 2px solid #111111;
+  box-shadow: 6px 6px 0 #111111;
+  background: #ffffff;
+  padding: 0.75rem;
+}
+
+.hero-backdrop-card::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: #111111;
+}
+
+.hero-backdrop-card--polaroid {
+  padding-bottom: 0.9rem;
+}
+
+.hero-backdrop-card--note {
+  --card-width: 200px;
+  background: #fff5bf;
+}
+
+.hero-backdrop-card--xs {
+  --card-width: 132px;
+  --photo-height: 74px;
+}
+
+.hero-backdrop-card--sm {
+  --card-width: 160px;
+  --photo-height: 88px;
+}
+
+.hero-backdrop-card--md {
+  --card-width: 188px;
+  --photo-height: 106px;
+}
+
+.hero-backdrop-card--lg {
+  --card-width: 226px;
+  --photo-height: 130px;
+}
+
+.hero-backdrop-card--xl {
+  --card-width: 260px;
+  --photo-height: 152px;
+}
+
+.hero-backdrop-card--ghost {
+  opacity: 0.42;
+  box-shadow: 3px 3px 0 rgba(17, 17, 17, 0.55);
+}
+
+.hero-backdrop-card--ghost .hero-backdrop-photo {
+  border-color: rgba(17, 17, 17, 0.65);
+}
+
+.hero-backdrop-tape {
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  width: 56px;
+  height: 16px;
+  opacity: 0.72;
+  transform: translateX(-50%) rotate(-5deg);
+}
+
+.hero-backdrop-photo {
+  width: 100%;
+  height: var(--photo-height);
+  border: 1.5px solid #111111;
+}
+
+.hero-backdrop-title,
+.hero-backdrop-subtitle,
+.hero-backdrop-note-title,
+.hero-backdrop-note-subtitle {
+  margin: 0;
+  color: #111111;
+  text-transform: uppercase;
+}
+
+.hero-backdrop-title,
+.hero-backdrop-note-title {
+  margin-top: 0.6rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+}
+
+.hero-backdrop-subtitle,
+.hero-backdrop-note-subtitle {
+  margin-top: 0.2rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+  font-weight: 700;
+}
+
+.hero-backdrop-note-title {
+  font-size: 0.82rem;
+}
+
+@media (max-width: 767px) {
+  .hero-backdrop-connectors {
+    display: none;
+  }
+}
+
+@media (min-width: 1536px) {
+  .home-hero-copy {
+    transform: translateY(24px);
+  }
+}
