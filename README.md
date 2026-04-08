@@ -17,7 +17,7 @@ Inspira/
 │   ├── rag_engine/    # RAG components (embedder, retriever, vector store)
 │   ├── reasoning/     # LangGraph reasoning nodes
 │   └── training/      # Model fine-tuning scripts
-├── frontend/          # React frontend application
+├── frontend v2/       # React frontend application
 └── README.md
 ```
 
@@ -72,7 +72,7 @@ uvicorn main:app --reload
 1. Install dependencies:
 
 ```bash
-cd frontend
+cd "frontend v2"
 npm install
 ```
 

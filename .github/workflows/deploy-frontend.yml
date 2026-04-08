@@ -2,7 +2,10 @@ name: Deploy Frontend to S3 + CloudFront
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, frontend ]
+    paths:
+      - 'frontend v2/**'
+      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 jobs:
@@ -10,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: 'frontend v2'
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +26,9 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_OPENAI_API_KEY: ${{ secrets.VITE_OPENAI_API_KEY }}
         run: npm run build
 
       - name: Configure AWS Credentials

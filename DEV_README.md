@@ -71,7 +71,7 @@
 
 | AWS 服务 | 做什么 | 对应代码 | 负责人 |
 |----------|-------|---------|--------|
-| **Amazon S3** | 存放前端打包后的静态文件（HTML/CSS/JS） | `frontend/dist/` | |
+| **Amazon S3** | 存放前端打包后的静态文件（HTML/CSS/JS） | `frontend v2/dist/` | |
 | **Amazon CloudFront** | CDN 分发前端资源，全球加速 + 自带 DDoS 防护 | 配置项，不涉及代码 | |
 | **Amazon Route 53** | 管理子域名 `inspira.xxx.com` 指向 CloudFront | 配置项 | |
 | **AWS Certificate Manager (ACM)** | 自动签发 HTTPS SSL 证书 | 配置项 | |
