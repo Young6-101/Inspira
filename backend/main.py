@@ -22,6 +22,7 @@ from backend.file_processor.text_splitter import split_text
 from backend.rag_engine.vector_store import InspiraVault
 from backend.reasoning.graph import app as reasoning_app
 from backend.settings import settings
+from backend.tasks import process_file_task
 
 app = FastAPI(title="Inspira Backend API")
 
@@ -88,67 +89,23 @@ async def upload_file(
     """
     try:
         filename = file.filename or "unknown"
-        ext = os.path.splitext(filename.lower())[1]
-        temp_path = f"temp_{filename}"
+        upload_dir = "uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        temp_path = os.path.join(upload_dir, f"tmp_{filename}")
 
         # Save to disk
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        text_content = ""
-
-        # --- PDF ---
-        if ext == ".pdf":
-            text_content = extract_text_from_pdf(temp_path)
-
-        # --- PPT ---
-        elif ext in (".pptx", ".ppt"):
-            text_content = extract_text_from_pptx(temp_path, describe_images=False)
-
-        # --- Audio ---
-        elif ext in AUDIO_EXTENSIONS:
-            text_content = audio_transcriber.transcribe(temp_path)
-
-        # --- Image → describe with GPT-4o vision, then store description as text ---
-        elif ext in IMAGE_EXTENSIONS:
-            with open(temp_path, "rb") as f:
-                image_bytes = f.read()
-            text_content = image_describer.describe_image_bytes(
-                image_bytes, filename,
-                prompt="Describe this image in detail. Focus on key visual elements, text content, diagrams, charts, patterns, colors, and any notable characteristics."
-            )
-
-        # --- Plain text ---
-        elif ext in TEXT_EXTENSIONS:
-            with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
-                text_content = f.read()
-
-        else:
-            os.remove(temp_path)
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
-
-        # Cleanup temp file
-        os.remove(temp_path)
-
-        if not text_content or not text_content.strip():
-            return {"filename": filename, "message": "File uploaded but no content extracted.", "chunks": 0}
-
-        # Split into chunks and store
-        chunks = split_text(text_content)
-        vault.store_chunks(stack_id, chunks, source=filename)
+        task = process_file_task.delay(temp_path, filename, stack_id)
 
         return {
+            "message": "File uploaded and background processing started",
+            "task_id": task.id,
             "filename": filename,
-            "message": f"Processed and stored {len(chunks)} chunks",
-            "chunks": len(chunks),
-            "preview": text_content[:300],
         }
-
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):

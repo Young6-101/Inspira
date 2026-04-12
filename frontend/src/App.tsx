@@ -4,6 +4,7 @@ import TopNav from './components/layout/TopNav.tsx';
 import AuthControl from './components/auth/AuthControl.tsx';
 import HomePage from './pages/HomePage.tsx';
 import ProfilePage from './pages/ProfilePage.tsx';
+import PrivacyPage from './pages/PrivacyPage';
 import StacksPage from './pages/StacksPage.tsx';
 import WorkspacePage from './pages/WorkspacePage.tsx';
 import useAuth from './hooks/useAuth';
@@ -106,6 +107,7 @@ export default function App() {
       <main className="flex-1 relative overflow-y-auto overflow-x-hidden flex flex-col">
         <Routes>
           <Route path="/" element={<HomePage onOpenArchives={() => navigate('/archives')} onOpenWorkspace={() => openWorkspace()} />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/profile" element={<ProfilePage user={user} />} />
           <Route
             path="/archives"
