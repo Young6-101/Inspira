@@ -27,9 +27,18 @@ const initialStacks: Stack[] = [
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [stacks, setStacks] = useState<Stack[]>(initialStacks);
+  const [stacks, setStacks] = useState<Stack[]>([]); // 启动时为空
   const [currentStackId, setCurrentStackId] = useState<string | null>(null);
   const { user, userInitial, signIn, signUp, signOut } = useAuth();
+
+  const apiUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+
+  useEffect(() => {
+    fetch(`${apiUrl}/stacks`)
+      .then(res => res.json())
+      .then(data => setStacks(data))
+      .catch(err => console.error("Failed to fetch stacks", err));
+  }, [apiUrl]);
 
   const inWorkspace = location.pathname.startsWith('/workspace');
 
@@ -50,40 +59,45 @@ export default function App() {
     navigate(stackId ? `/workspace/${encodeURIComponent(stackId)}` : '/workspace');
   };
 
-  const createStack = (payload?: { name?: string; label?: string }) => {
-    setStacks((prev) => {
-      const now = new Date();
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const dd = String(now.getDate()).padStart(2, '0');
-
-      const newId = `${yyyy}/${mm}/${dd}`;
-      const fallbackName = 'Untitled';
-      const fallbackLabel = 'Unsorted';
-
-      const next: Stack = {
-        id: newId,
-        name: payload?.name?.trim() || fallbackName,
-        fileCount: 0,
-        type: payload?.label?.trim() || fallbackLabel
-      };
-
-      return [next, ...prev];
-    });
+  // create Stack
+  const createStack = async (payload?: { name?: string; label?: string }) => {
+    try {
+      const res = await fetch(`${apiUrl}/stacks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: payload?.name, label: payload?.label })
+      });
+      const newStack = await res.json();
+      setStacks(prev => [newStack, ...prev]);
+    } catch (err) {
+      console.error("Create stack failed", err);
+    }
   };
 
-  const updateStack = (id: string, payload?: { name?: string; label?: string }) => {
-    setStacks((prev) => prev.map((stack) => {
-      if (stack.id !== id) return stack;
-      return {
-        ...stack,
-        name: payload?.name?.trim() || 'Untitled',
-        type: payload?.label?.trim() || 'Unsorted'
-      };
-    }));
+  // update Stack
+  const updateStack = async (id: string, payload?: { name?: string; label?: string }) => {
+    try {
+      const res = await fetch(`${apiUrl}/stacks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: payload?.name, label: payload?.label })
+      });
+      const updated = await res.json();
+      setStacks((prev) => prev.map((s) => (s.id === id ? updated : s)));
+    } catch (err) {
+      console.error("Update stack failed", err);
+    }
   };
 
-  const deleteStack = (id: string) => setStacks((prev) => prev.filter((s) => s.id !== id));
+  // --- delete Stack ---
+  const deleteStack = async (id: string) => {
+    try {
+      await fetch(`${apiUrl}/stacks/${id}`, { method: 'DELETE' });
+      setStacks((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      console.error("Delete stack failed", err);
+    }
+  };
 
   return (
     <div className="h-screen w-screen bg-bgCream text-textBlack font-sansAlt flex flex-col overflow-hidden grid-bg">

@@ -127,12 +127,10 @@ def probe_user_node(state: GraphState):
 	prompt = ChatPromptTemplate.from_messages([
 		("system", """You are 'Inspira', an AI that helps users discover hidden patterns and insights from their uploaded materials.
 
-The user's query is too vague. Ask a focused, helpful follow-up question (1-2 sentences) to understand what they're looking for.
+The user's query is too vague. Ask a focused, helpful follow-up question (MAX 2 SENTENCES) to understand what they're looking for.
 
-Be warm and specific. Suggest concrete directions they could take. For example:
-- "Are you looking for visual patterns across your images, or thematic connections in your documents?"
-- "I see you've uploaded design screenshots and research papers. Would you like me to find connections between your visual preferences and your research topics?"
-
+Be warm and specific. Suggest concrete directions they could take. 
+...
 Conversation history:
 {stm_text}"""),
 		("human", "{question}"),
@@ -330,46 +328,40 @@ def generate_response_node(state: GraphState):
 	stm_text = state.get("stm_text", "")
 	mtm_text = state.get("mtm_text", "")
 
-	if not context:
+	if not context and state.get("intent") != "refine":
 		system_prompt = (
 			"You are 'Inspira', an AI assistant. The user hasn't uploaded any materials to this stack yet, "
-			"or no relevant context was found. Let them know they can upload files (PDF, PPT, images, audio, text) "
-			"and then ask questions to find patterns and insights."
+			"or no relevant context was found. Let them know they can upload files (PDF, PPT, images, audio, text)."
 		)
 	else:
 		mode_instructions = {
-			"patterns": "Identify common themes, recurring patterns, and synthesize a cohesive overview. Surface hidden connections the user might not have noticed.",
-			"summarize": "Provide a concise, structured summary of core points and key takeaways.",
+			"patterns": "Identify common themes, recurring patterns, and synthesize a cohesive overview.",
+			"summarize": "Provide a concise, structured summary of core points.",
 			"compare": "Compare different concepts, highlighting similarities and exact differences.",
-			"brainstorm": "Generate highly creative, out-of-the-box ideas and novel suggestions inspired by the context.",
-			"custom": "Follow the user's specific query exactly as requested, using the context.",
+			"brainstorm": "Generate creative, out-of-the-box ideas inspired by the context.",
+			"custom": "Follow the user's specific query exactly using the context.",
 		}
 		instruction = mode_instructions.get(state["mode"], mode_instructions["patterns"])
 		context_text = "\n\n".join(f"[Fragment {i + 1}]: {c}" for i, c in enumerate(context))
 
 		system_prompt = f"""You are 'Inspira', an AI inspiration engine operating in '{state['mode']}' mode.
 
-INSTRUCTION:
-{instruction}
+INSTRUCTION: {instruction}
 
-Short-term Conversation Memory:
-{stm_text or '[none]'}
-
-Personalized User Facts:
-{mtm_text or '[none]'}
-
-Retrieved Context (via {', '.join(state.get('tool_log', []))}):
-{context_text}"""
+Short-term Memory: {stm_text or '[none]'}
+Personalized Facts: {mtm_text or '[none]'}
+Context: {context_text}"""
 
 	llm = get_llm(model=state.get("model"), temperature=0.7)
 	prompt = ChatPromptTemplate.from_messages([
-		("system", "{system_prompt}"),
+		("system", f"{system_prompt}\n\nCRITICAL: Keep your response concise (max 150 words)."),
 		("human", "{question}"),
 	])
+	
 	chain = prompt | llm
-	response = chain.invoke({"system_prompt": system_prompt, "question": state["question"]})
-	answer = response.content if isinstance(response.content, str) else str(response.content)
-
+	response = chain.invoke({"question": state["question"]})
+	answer = response.content
+	
 	return {"answer": answer}
 
 
