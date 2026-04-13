@@ -1,125 +1,112 @@
+"""
+Hybrid Memory Store using Redis for STM and Mem0 for contextual facts.
+"""
 import json
 import importlib
 from datetime import datetime
 from typing import Any
 
 from backend.settings import settings
+from mem0 import Memory
 
 
 class MemoryStore:
-    """
-    MemoryOS-style three-level memory helper on Redis.
-    - Short-term memory (STM): recent turns per session
-    - Mid-term memory (MTM): summarized session memories per user+stack
-    - Long-term memory (LTM): handled by Chroma in rag_engine/vector_store.py
-    """
+	"""
+	- Short-term memory (STM): recent turns per session stored in Redis.
+	- Fact Memory: Mem0 extracts and stores facts using LLM directly into Chroma.
+	"""
 
-    def __init__(self):
-        self.enabled = settings.memory_enabled
-        self.client = None
+	def __init__(self):
+		self.enabled = settings.memory_enabled
+		self.client = None
 
-        if not self.enabled:
-            return
+		if not self.enabled:
+			return
 
-        try:
-            redis_lib = importlib.import_module("redis")
-            self.client = redis_lib.from_url(settings.redis_url, decode_responses=True)
-        except Exception:
-            # Keep app running even if redis package/server is unavailable.
-            self.client = None
+		# Redis for STM
+		try:
+			redis_lib = importlib.import_module("redis")
+			self.client = redis_lib.from_url(settings.redis_url, decode_responses=True)
+		except Exception:
+			self.client = None
 
-    def _stm_key(self, user_id: str, session_id: str) -> str:
-        return f"memory:stm:{user_id}:{session_id}"
+		# Mem0 for intelligent fact extraction
+		config = {
+			"vector_store": {
+				"provider": "chroma",
+				"config": {
+					"collection_name": "mem0_facts",
+					"path": "./inspira_db",
+				}
+			},
+			"llm": {
+				"provider": "openai",
+				"config": {
+					"model": settings.openai_chat_model,
+					"api_key": settings.openai_api_key,
+				}
+			}
+		}
+		self.mem0 = Memory.from_config(config_dict=config)
 
-    def _mtm_key(self, user_id: str, stack_id: str) -> str:
-        return f"memory:mtm:{user_id}:{stack_id}"
+	def _stm_key(self, user_id: str, session_id: str) -> str:
+		return f"memory:stm:{user_id}:{session_id}"
 
-    def _mtm_index_key(self, user_id: str, stack_id: str) -> str:
-        return f"memory:mtm:index:{user_id}:{stack_id}"
+	def append_turn(self, user_id: str, session_id: str, question: str, answer: str):
+		if not self.enabled:
+			return
 
-    def append_turn(self, user_id: str, session_id: str, question: str, answer: str):
-        if not self.client:
-            return
+		# 1. STM (Redis)
+		if self.client:
+			key = self._stm_key(user_id, session_id)
+			payload = {
+				"ts": datetime.utcnow().isoformat(),
+				"q": question,
+				"a": answer,
+			}
+			self.client.rpush(key, json.dumps(payload, ensure_ascii=False))
 
-        key = self._stm_key(user_id, session_id)
-        payload = {
-            "ts": datetime.utcnow().isoformat(),
-            "q": question,
-            "a": answer,
-        }
-        self.client.rpush(key, json.dumps(payload, ensure_ascii=False))
+			window = max(settings.memory_stm_window * 2, 2)
+			self.client.ltrim(key, -window, -1)
+			self.client.expire(key, settings.memory_stm_ttl_seconds)
 
-        window = max(settings.memory_stm_window * 2, 2)
-        self.client.ltrim(key, -window, -1)
-        self.client.expire(key, settings.memory_stm_ttl_seconds)
+		# 2. Fact Extraction (Mem0)
+		try:
+			messages = [
+				{"role": "user", "content": question},
+				{"role": "assistant", "content": answer}
+			]
+			self.mem0.add(messages, user_id=user_id)
+		except Exception as e:
+			print(f"--- [WARN] Mem0 failed to index memory: {e} ---")
 
-    def get_recent_turns(self, user_id: str, session_id: str, max_turns: int | None = None) -> list[dict[str, Any]]:
-        if not self.client:
-            return []
+	def get_recent_turns(self, user_id: str, session_id: str, max_turns: int | None = None) -> list[dict[str, Any]]:
+		if not self.client:
+			return []
 
-        max_turns = max_turns or settings.memory_stm_window
-        key = self._stm_key(user_id, session_id)
-        raw = self.client.lrange(key, -max_turns, -1)
+		max_turns = max_turns or settings.memory_stm_window
+		key = self._stm_key(user_id, session_id)
+		raw = self.client.lrange(key, -max_turns, -1)
 
-        turns: list[dict[str, Any]] = []
-        for item in raw:
-            try:
-                turns.append(json.loads(item))
-            except Exception:
-                continue
-        return turns
+		turns: list[dict[str, Any]] = []
+		for item in raw:
+			try:
+				turns.append(json.loads(item))
+			except Exception:
+				continue
+		return turns
 
-    def upsert_mid_summary(
-        self,
-        user_id: str,
-        stack_id: str,
-        session_id: str,
-        summary: str,
-        importance: float = 0.5,
-    ):
-        if not self.client:
-            return
-
-        item_id = f"{session_id}:{int(datetime.utcnow().timestamp())}"
-        data_key = self._mtm_key(user_id, stack_id)
-        index_key = self._mtm_index_key(user_id, stack_id)
-
-        payload = {
-            "id": item_id,
-            "session_id": session_id,
-            "summary": summary,
-            "importance": importance,
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        self.client.hset(data_key, item_id, json.dumps(payload, ensure_ascii=False))
-        self.client.zadd(index_key, {item_id: importance})
-
-        self.client.expire(data_key, settings.memory_mtm_ttl_seconds)
-        self.client.expire(index_key, settings.memory_mtm_ttl_seconds)
-
-    def get_mid_summaries(self, user_id: str, stack_id: str, top_k: int = 3) -> list[dict[str, Any]]:
-        if not self.client:
-            return []
-
-        data_key = self._mtm_key(user_id, stack_id)
-        index_key = self._mtm_index_key(user_id, stack_id)
-
-        item_ids = self.client.zrevrange(index_key, 0, max(top_k - 1, 0))
-        results: list[dict[str, Any]] = []
-
-        for item_id in item_ids:
-            raw = self.client.hget(data_key, item_id)
-            if not raw:
-                continue
-            try:
-                results.append(json.loads(raw))
-            except Exception:
-                continue
-
-        return results
-
-    def should_summarize(self, user_id: str, session_id: str, threshold_turns: int = 6) -> bool:
-        if not self.client:
-            return False
-        key = self._stm_key(user_id, session_id)
-        return self.client.llen(key) >= threshold_turns
+	def search_facts(self, question: str, user_id: str, limit: int = 5) -> list[str]:
+		"""Retrieve relevant intelligent memory facts from Mem0."""
+		if not self.enabled:
+			return []
+		try:
+			results = self.mem0.search(question, user_id=user_id, limit=limit)
+			facts = []
+			for r in results:
+				if isinstance(r, dict) and "memory" in r:
+					facts.append(r["memory"])
+			return facts
+		except Exception as e:
+			print(f"--- [WARN] Mem0 search failed: {e} ---")
+			return []

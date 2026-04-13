@@ -1,114 +1,403 @@
-from backend.rag_engine.vector_store import InspiraVault
+"""
+LangGraph reasoning nodes.
+
+Pipeline:
+  memory_retrieve → classify_intent
+    ├── probe_user → memory_write → END
+    ├── tool_router → evaluate_retrieval ↔ tool_router → generate_response → memory_write → END
+    └── refine_context → evaluate_retrieval ↔ tool_router → generate_response → memory_write → END
+"""
+import json
+
 from backend.reasoning.memory_store import MemoryStore
 from backend.reasoning.model_client import get_llm
 from backend.reasoning.state import GraphState
+from backend.reasoning.tools import (
+	retriever_tool,
+	web_search_tool,
+	summarizer_tool,
+	comparator_tool,
+	RETRIEVAL_TOOLS,
+	PROCESSING_TOOLS,
+)
 from backend.settings import settings
 from langchain_core.prompts import ChatPromptTemplate
 
-
-vault = InspiraVault()
 memory_store = MemoryStore()
 
+MAX_RETRIES = 2
+
+
+# ═══════════════════════════════════════════════════════════
+#  1. Memory Retrieve
+# ═══════════════════════════════════════════════════════════
 
 def memory_retrieve_node(state: GraphState):
-    """Load short/mid-term memory from Redis for this user session."""
-    print("--- [AGENT] Loading STM/MTM memory ---")
+	"""Load STM and personalized facts from Mem0 for this user session."""
+	print("--- [NODE] memory_retrieve ---")
 
-    stm_turns = memory_store.get_recent_turns(state["user_id"], state["session_id"])
-    mtm_items = memory_store.get_mid_summaries(state["user_id"], state["stack_id"], top_k=3)
+	stm_turns = memory_store.get_recent_turns(state["user_id"], state["session_id"])
+	mem0_facts = memory_store.search_facts(state["question"], state["user_id"])
 
-    stm_text = "\n".join(
-        [f"- Q: {turn.get('q', '')}\n  A: {str(turn.get('a', ''))[:260]}" for turn in stm_turns]
-    )
-    mtm_text = "\n".join([f"- {item.get('summary', '')}" for item in mtm_items])
+	stm_text = "\n".join(
+		[f"- Q: {t.get('q', '')}\n  A: {str(t.get('a', ''))[:260]}" for t in stm_turns]
+	)
+	mtm_text = "\n".join([f"- {fact}" for fact in mem0_facts])
 
-    return {"stm_text": stm_text, "mtm_text": mtm_text}
+	# Extract last answer for refinement context
+	previous_answer = ""
+	if stm_turns:
+		previous_answer = stm_turns[-1].get("a", "")
+
+	return {
+		"stm_text": stm_text,
+		"mtm_text": mtm_text,
+		"previous_answer": previous_answer,
+		"retry_count": 0,
+		"context": [],
+		"tool_log": [],
+	}
 
 
-def retrieve_node(state: GraphState):
-    """Retrieve relevant fragments from Chroma long-term memory."""
-    print("--- [AGENT] Retrieving relevant context from vector store ---")
-    context = vault.search(state["stack_id"], state["question"], top_k=5)
-    return {"context": context}
+# ═══════════════════════════════════════════════════════════
+#  2. Classify Intent
+# ═══════════════════════════════════════════════════════════
+
+def classify_intent_node(state: GraphState):
+	"""Classify user intent → probe | tool_call | refine."""
+	print("--- [NODE] classify_intent ---")
+
+	llm = get_llm(model=state.get("model"), temperature=0.0)
+
+	prompt = ChatPromptTemplate.from_messages([
+		("system", """You are an intent classifier for 'Inspira', an AI inspiration engine.
+
+Given the user's message and conversation history, classify into exactly ONE of:
+
+- "probe": The user's request is too vague or ambiguous. You need to ask a clarifying question before proceeding. Examples: "help me", "inspire me", "I don't know what I want".
+
+- "tool_call": The user wants information, analysis, pattern discovery, or creative inspiration from their uploaded materials or the web. This is the DEFAULT for most queries. Examples: "what patterns do you see?", "summarize my notes", "compare these styles", "search for minimalist design trends".
+
+- "refine": The user is explicitly requesting adjustments to the PREVIOUS response. There MUST be a previous answer to refine. Examples: "more detail on point 3", "make it shorter", "focus on the color palette", "rewrite in Japanese".
+
+Previous conversation:
+{stm_text}
+
+Previous answer (if any):
+{previous_answer}
+
+RULES:
+- If there is NO previous answer, never classify as "refine"
+- When in doubt, use "tool_call"
+- Only use "probe" if the query is genuinely too vague to act on
+
+Respond with ONLY the intent label."""),
+		("human", "{question}"),
+	])
+
+	chain = prompt | llm
+	response = chain.invoke({
+		"stm_text": state.get("stm_text", "[none]"),
+		"previous_answer": state.get("previous_answer", "[no previous answer]")[:500],
+		"question": state["question"],
+	})
+
+	intent = response.content.strip().lower().replace('"', '').replace("'", "")
+	if intent not in ("probe", "tool_call", "refine"):
+		intent = "tool_call"
+
+	# Safety: can't refine if no previous answer
+	if intent == "refine" and not state.get("previous_answer"):
+		intent = "tool_call"
+
+	print(f"--- [INTENT] → {intent} ---")
+	return {"intent": intent}
 
 
-def generate_node(state: GraphState):
-    """Generate answer by combining STM/MTM memory with retrieved LTM context."""
-    print("--- [AGENT] Generating answer with model ---")
+# ═══════════════════════════════════════════════════════════
+#  3a. Probe User (ask clarifying question)
+# ═══════════════════════════════════════════════════════════
 
-    context = state.get("context", [])
-    stm_text = state.get("stm_text", "")
-    mtm_text = state.get("mtm_text", "")
+def probe_user_node(state: GraphState):
+	"""Generate a clarifying follow-up question and return it as the answer."""
+	print("--- [NODE] probe_user ---")
 
-    if not context:
-        system_prompt = (
-            "You are 'Inspira', an AI assistant. The user hasn't uploaded any materials to this stack yet, "
-            "or no relevant context was found. Let them know they can upload files (PDF, PPT, images, audio, text) "
-            "and then ask questions to find patterns and insights."
-        )
-    else:
-        mode_instructions = {
-            "patterns": "Identify common themes, recurring patterns, and synthesize a cohesive overview.",
-            "summarize": "Provide a concise and structured summary of the core points and key takeaways without fluff.",
-            "compare": "Analyze the context to compare different concepts, highlighting similarities and exact differences.",
-            "brainstorm": "Use the context as inspiration to generate highly creative, out-of-the-box ideas and novel suggestions.",
-            "custom": "Follow the user's specific instructional query exactly as requested, using the context.",
-        }
-        instruction = mode_instructions.get(state["mode"], mode_instructions["patterns"])
-        context_text = "\n\n".join(f"[Fragment {i + 1}]: {chunk}" for i, chunk in enumerate(context))
+	llm = get_llm(model=state.get("model"), temperature=0.7)
 
-        system_prompt = f"""You are 'Inspira', an AI assistant operating in '{state['mode']}' mode.
-Your goal is to process the user's uploaded materials (documents, images, audio transcripts, notes) to help them.
+	prompt = ChatPromptTemplate.from_messages([
+		("system", """You are 'Inspira', an AI that helps users discover hidden patterns and insights from their uploaded materials.
 
-CRITICAL INSTRUCTION:
+The user's query is too vague. Ask a focused, helpful follow-up question (1-2 sentences) to understand what they're looking for.
+
+Be warm and specific. Suggest concrete directions they could take. For example:
+- "Are you looking for visual patterns across your images, or thematic connections in your documents?"
+- "I see you've uploaded design screenshots and research papers. Would you like me to find connections between your visual preferences and your research topics?"
+
+Conversation history:
+{stm_text}"""),
+		("human", "{question}"),
+	])
+
+	chain = prompt | llm
+	response = chain.invoke({
+		"stm_text": state.get("stm_text", "[none]"),
+		"question": state["question"],
+	})
+
+	return {"answer": response.content}
+
+
+# ═══════════════════════════════════════════════════════════
+#  3b. Tool Router (select & execute tools)
+# ═══════════════════════════════════════════════════════════
+
+def tool_router_node(state: GraphState):
+	"""LLM selects tools → execute retrieval tools → execute processing tools."""
+	print("--- [NODE] tool_router ---")
+
+	llm = get_llm(model=state.get("model"), temperature=0.0)
+
+	prompt = ChatPromptTemplate.from_messages([
+		("system", """You are a tool selector for an AI inspiration engine.
+
+Available tools:
+- "retriever": Search the user's uploaded materials (docs, images, audio) via cross-modal CLIP retrieval. Always include this if no context has been retrieved yet.
+- "web_search": Search the web for supplementary information not in uploaded materials. Use when the query needs current/external knowledge.
+- "summarizer": Condense and synthesize retrieved fragments. Use when there's a lot of context that needs to be distilled.
+- "comparator": Compare and contrast different items or concepts. Use when the user wants to understand differences/similarities.
+
+Current state:
+- Context fragments already retrieved: {context_count}
+- Tools already called this session: {tool_log}
+- This is retry #{retry_count} (if > 0, try different/broader tools)
+
+Select 1-3 tools. Respond with ONLY a JSON array, e.g.: ["retriever", "web_search"]
+
+Guidelines:
+- If context_count is 0, ALWAYS include "retriever"
+- On retries, consider adding "web_search" for broader coverage
+- "summarizer" and "comparator" only make sense when there IS context to process"""),
+		("human", "{question}"),
+	])
+
+	chain = prompt | llm
+	response = chain.invoke({
+		"question": state["question"],
+		"context_count": str(len(state.get("context", []))),
+		"tool_log": ", ".join(state.get("tool_log", [])) or "none",
+		"retry_count": str(state.get("retry_count", 0)),
+	})
+
+	# Parse tool selection
+	try:
+		raw = response.content.strip()
+		start = raw.index("[")
+		end = raw.index("]") + 1
+		selected = json.loads(raw[start:end])
+	except (ValueError, json.JSONDecodeError):
+		selected = ["retriever"]
+
+	valid_tools = {"retriever", "web_search", "summarizer", "comparator"}
+	selected = [t for t in selected if t in valid_tools]
+	if not selected:
+		selected = ["retriever"]
+
+	print(f"--- [ROUTER] Selected: {selected} ---")
+
+	# Execute tools
+	context = list(state.get("context", []))
+	tool_log = list(state.get("tool_log", []))
+
+	# Phase 1: Retrieval tools → produce new context
+	for tool_name in selected:
+		if tool_name == "retriever":
+			results = retriever_tool(state["question"], state["stack_id"])
+			context.extend(results)
+			tool_log.append("retriever")
+		elif tool_name == "web_search":
+			results = web_search_tool(state["question"])
+			context.extend(results)
+			tool_log.append("web_search")
+
+	# Phase 2: Processing tools → transform context
+	for tool_name in selected:
+		if tool_name == "summarizer" and context:
+			summary = summarizer_tool(context, model=state.get("model"))
+			context = [f"[Summary]: {summary}"]
+			tool_log.append("summarizer")
+		elif tool_name == "comparator" and context:
+			comparison = comparator_tool(context, model=state.get("model"))
+			context.append(f"[Comparison]: {comparison}")
+			tool_log.append("comparator")
+
+	return {"context": context, "tool_log": tool_log, "selected_tools": selected}
+
+
+# ═══════════════════════════════════════════════════════════
+#  3c. Refine Context (iterative refinement of previous response)
+# ═══════════════════════════════════════════════════════════
+
+def refine_context_node(state: GraphState):
+	"""Build context from previous answer + targeted retrieval for refinement."""
+	print("--- [NODE] refine_context ---")
+
+	previous = state.get("previous_answer", "")
+	question = state["question"]
+
+	context = []
+	if previous:
+		context.append(f"[Previous Response to Refine]:\n{previous}")
+
+	# Light retrieval targeting the refinement request
+	additional = retriever_tool(question, state["stack_id"])
+	if additional:
+		context.extend(additional)
+
+	tool_log = list(state.get("tool_log", []))
+	tool_log.append("refine_retrieval")
+
+	return {"context": context, "tool_log": tool_log}
+
+
+# ═══════════════════════════════════════════════════════════
+#  4. Evaluate Retrieval
+# ═══════════════════════════════════════════════════════════
+
+def evaluate_retrieval_node(state: GraphState):
+	"""Judge if retrieved context is sufficient. If not → retry via tool_router."""
+	print("--- [NODE] evaluate_retrieval ---")
+
+	context = state.get("context", [])
+	retry_count = state.get("retry_count", 0)
+
+	# Auto-pass conditions
+	if retry_count >= MAX_RETRIES:
+		print(f"--- [EVAL] Max retries ({MAX_RETRIES}) reached, proceeding anyway ---")
+		return {"retrieval_sufficient": True}
+
+	if not context:
+		print("--- [EVAL] Empty context (empty stack?), proceeding ---")
+		return {"retrieval_sufficient": True}
+
+	llm = get_llm(model=state.get("model"), temperature=0.0)
+
+	context_preview = "\n".join(c[:300] for c in context[:5])
+
+	prompt = ChatPromptTemplate.from_messages([
+		("system", """You are evaluating whether retrieved context is sufficient to answer a user's question.
+
+Retrieved context (preview):
+{context_preview}
+
+Total fragments: {count}
+Tools used: {tool_log}
+
+Is this context sufficient to provide a helpful, well-grounded answer?
+
+Respond with ONLY "sufficient" or "insufficient".
+Say "insufficient" ONLY if critical information is clearly missing and additional retrieval could plausibly help."""),
+		("human", "{question}"),
+	])
+
+	chain = prompt | llm
+	response = chain.invoke({
+		"context_preview": context_preview,
+		"count": str(len(context)),
+		"tool_log": ", ".join(state.get("tool_log", [])),
+		"question": state["question"],
+	})
+
+	result = response.content.strip().lower()
+	sufficient = "insufficient" not in result
+
+	print(f"--- [EVAL] → {'sufficient ✓' if sufficient else 'insufficient ✗'} (attempt {retry_count + 1}/{MAX_RETRIES + 1}) ---")
+
+	return {
+		"retrieval_sufficient": sufficient,
+		"retry_count": retry_count + 1,
+	}
+
+
+# ═══════════════════════════════════════════════════════════
+#  5. Generate Response
+# ═══════════════════════════════════════════════════════════
+
+def generate_response_node(state: GraphState):
+	"""Final LLM generation with all gathered context."""
+	print("--- [NODE] generate_response ---")
+
+	context = state.get("context", [])
+	stm_text = state.get("stm_text", "")
+	mtm_text = state.get("mtm_text", "")
+
+	if not context:
+		system_prompt = (
+			"You are 'Inspira', an AI assistant. The user hasn't uploaded any materials to this stack yet, "
+			"or no relevant context was found. Let them know they can upload files (PDF, PPT, images, audio, text) "
+			"and then ask questions to find patterns and insights."
+		)
+	else:
+		mode_instructions = {
+			"patterns": "Identify common themes, recurring patterns, and synthesize a cohesive overview. Surface hidden connections the user might not have noticed.",
+			"summarize": "Provide a concise, structured summary of core points and key takeaways.",
+			"compare": "Compare different concepts, highlighting similarities and exact differences.",
+			"brainstorm": "Generate highly creative, out-of-the-box ideas and novel suggestions inspired by the context.",
+			"custom": "Follow the user's specific query exactly as requested, using the context.",
+		}
+		instruction = mode_instructions.get(state["mode"], mode_instructions["patterns"])
+		context_text = "\n\n".join(f"[Fragment {i + 1}]: {c}" for i, c in enumerate(context))
+
+		system_prompt = f"""You are 'Inspira', an AI inspiration engine operating in '{state['mode']}' mode.
+
+INSTRUCTION:
 {instruction}
 
-Short-term Conversation Memory (latest turns):
-{stm_text if stm_text else '[none]'}
+Short-term Conversation Memory:
+{stm_text or '[none]'}
 
-Mid-term Memory Summaries:
-{mtm_text if mtm_text else '[none]'}
+Personalized User Facts:
+{mtm_text or '[none]'}
 
-Retrieved Context:
+Retrieved Context (via {', '.join(state.get('tool_log', []))}):
 {context_text}"""
 
-    model_name = state["model"]
-    if settings.app_mode == "local" and ((not model_name) or model_name.startswith("gpt-")):
-        model_name = settings.ollama_chat_model
+	llm = get_llm(model=state.get("model"), temperature=0.7)
+	prompt = ChatPromptTemplate.from_messages([
+		("system", "{system_prompt}"),
+		("human", "{question}"),
+	])
+	chain = prompt | llm
+	response = chain.invoke({"system_prompt": system_prompt, "question": state["question"]})
+	answer = response.content if isinstance(response.content, str) else str(response.content)
 
-    llm = get_llm(model=model_name, temperature=0.7)
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", "{system_prompt}"),
-            ("human", "{question}"),
-        ]
-    )
-    chain = prompt | llm
-    response = chain.invoke({"system_prompt": system_prompt, "question": state["question"]})
-    answer = response.content if isinstance(response.content, str) else str(response.content)
+	return {"answer": answer}
 
-    return {"answer": answer}
 
+# ═══════════════════════════════════════════════════════════
+#  6. Memory Write
+# ═══════════════════════════════════════════════════════════
 
 def memory_write_node(state: GraphState):
-    """Write back answer to STM and periodically summarize to MTM."""
-    print("--- [AGENT] Writing memory (STM/MTM) ---")
+	"""Persist Q&A to STM; Mem0 automatically handles long-term fact extraction."""
+	print("--- [NODE] memory_write ---")
 
-    answer = state.get("answer", "")
-    memory_store.append_turn(state["user_id"], state["session_id"], state["question"], answer)
+	answer = state.get("answer", "")
+	memory_store.append_turn(state["user_id"], state["session_id"], state["question"], answer)
 
-    if memory_store.should_summarize(state["user_id"], state["session_id"]):
-        turns = memory_store.get_recent_turns(state["user_id"], state["session_id"], max_turns=6)
-        if turns:
-            raw_summary = " | ".join(
-                [f"Q:{t.get('q', '')} A:{str(t.get('a', ''))[:120]}" for t in turns]
-            )
-            memory_store.upsert_mid_summary(
-                state["user_id"],
-                state["stack_id"],
-                state["session_id"],
-                summary=raw_summary[:1200],
-                importance=0.7,
-            )
+	return {}
 
-    return {}
+
+# ═══════════════════════════════════════════════════════════
+#  Routing functions (for conditional edges)
+# ═══════════════════════════════════════════════════════════
+
+def route_by_intent(state: GraphState) -> str:
+	"""Route based on classify_intent result."""
+	return state.get("intent", "tool_call")
+
+
+def route_by_retrieval(state: GraphState) -> str:
+	"""Route based on evaluate_retrieval result."""
+	if state.get("retrieval_sufficient", True):
+		return "pass"
+	return "retry"

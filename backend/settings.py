@@ -17,20 +17,18 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-	app_mode: str
+	app_mode: str  # "cloud" or "local" — controls deployment context only
+
+	# --- OpenAI API (used in both modes) ---
 	openai_api_key: str | None
+	openai_chat_model: str
+	openai_vision_model: str
 
-	ollama_base_url: str
-	ollama_chat_model: str
-	ollama_vision_model: str
-	ollama_embedding_model: str
-	ollama_chat_timeout_seconds: int
-	ollama_vision_timeout_seconds: int
-	ollama_embedding_timeout_seconds: int
+	# --- CLIP model (runs locally in both modes via sentence-transformers) ---
+	clip_model: str
+	clip_device: str  # "cpu", "cuda", "mps"
 
-	embedding_provider: str
-	openai_embedding_model: str
-
+	# --- Redis & cache ---
 	redis_url: str
 	retrieval_cache_enabled: bool
 	retrieval_cache_ttl_seconds: int
@@ -46,18 +44,10 @@ def load_settings() -> Settings:
 	return Settings(
 		app_mode=app_mode,
 		openai_api_key=os.getenv("OPENAI_API_KEY"),
-		ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-		ollama_chat_model=os.getenv("OLLAMA_CHAT_MODEL", "llama3"),
-		ollama_vision_model=os.getenv("OLLAMA_VISION_MODEL", "moondream"),
-		ollama_embedding_model=os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"),
-		ollama_chat_timeout_seconds=int(os.getenv("OLLAMA_CHAT_TIMEOUT_SECONDS", "120")),
-		ollama_vision_timeout_seconds=int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "240")),
-		ollama_embedding_timeout_seconds=int(os.getenv("OLLAMA_EMBEDDING_TIMEOUT_SECONDS", "60")),
-		embedding_provider=os.getenv(
-			"EMBEDDING_PROVIDER",
-			"ollama" if app_mode == "local" else "openai"
-		).strip().lower(),
-		openai_embedding_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+		openai_chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+		openai_vision_model=os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini"),
+		clip_model=os.getenv("CLIP_MODEL", "jinaai/jina-clip-v1"),
+		clip_device=os.getenv("CLIP_DEVICE", "cpu"),
 		redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
 		retrieval_cache_enabled=_as_bool(os.getenv("RETRIEVAL_CACHE_ENABLED"), default=True),
 		retrieval_cache_ttl_seconds=int(os.getenv("RETRIEVAL_CACHE_TTL_SECONDS", "3600")),
