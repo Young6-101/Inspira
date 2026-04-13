@@ -4,12 +4,26 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlmodel import Session, select
 from typing import List
 from uuid import uuid4
+from pydantic import BaseModel
 
 from backend.database import get_session
 from backend.models import FileRecord, FileResponse, FileUpdate
 from backend.tasks import process_file_task
+from backend.file_processor.text_splitter import split_text
+from backend.rag_engine.vector_store import InspiraVault
 
 router = APIRouter(prefix="/stacks/{stack_id}/files", tags=["files"])
+vault = InspiraVault()
+
+
+class TextNodeCreate(BaseModel):
+    text: str
+    label: str | None = None
+
+
+class UrlNodeCreate(BaseModel):
+    url: str
+    label: str | None = None
 
 @router.post("", response_model=FileResponse)
 async def upload_stack_file(
@@ -68,6 +82,56 @@ async def upload_stack_file(
 def list_stack_files(stack_id: str, session: Session = Depends(get_session)):
     files = session.exec(select(FileRecord).where(FileRecord.stack_id == stack_id)).all()
     return files
+
+
+@router.post("/text", response_model=FileResponse)
+def create_text_node(stack_id: str, payload: TextNodeCreate, session: Session = Depends(get_session)):
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+
+    filename = payload.label or "thought.txt"
+    db_file = FileRecord(
+        stack_id=stack_id,
+        filename=filename,
+        type="text",
+        label=payload.label,
+        text_preview=text[:500],
+        status="ready",
+    )
+    session.add(db_file)
+    session.commit()
+    session.refresh(db_file)
+
+    chunks = split_text(text)
+    if chunks:
+        vault.store_chunks(stack_id, chunks, source=filename)
+
+    return db_file
+
+
+@router.post("/url", response_model=FileResponse)
+def create_url_node(stack_id: str, payload: UrlNodeCreate, session: Session = Depends(get_session)):
+    url = (payload.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
+
+    filename = payload.label or "link.url"
+    db_file = FileRecord(
+        stack_id=stack_id,
+        filename=filename,
+        type="url",
+        label=payload.label,
+        text_preview=url[:500],
+        status="ready",
+    )
+    session.add(db_file)
+    session.commit()
+    session.refresh(db_file)
+
+    vault.store_chunks(stack_id, [f"URL: {url}"], source=filename)
+
+    return db_file
 
 @router.patch("/{file_id}", response_model=FileResponse)
 def update_stack_file(

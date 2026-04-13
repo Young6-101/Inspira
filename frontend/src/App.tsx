@@ -27,11 +27,12 @@ const initialStacks: Stack[] = [
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [stacks, setStacks] = useState<Stack[]>([]); // 启动时为空
+  const [stacks, setStacks] = useState<Stack[]>([]); 
   const [currentStackId, setCurrentStackId] = useState<string | null>(null);
   const { user, userInitial, signIn, signUp, signOut } = useAuth();
 
-  const apiUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+  const envApiUrl = (import.meta as any).env.VITE_API_URL;
+  const apiUrl = envApiUrl || ((import.meta as any).env.DEV ? '/api' : 'http://127.0.0.1:8000');
 
   useEffect(() => {
     fetch(`${apiUrl}/stacks`)
@@ -52,6 +53,11 @@ export default function App() {
   const currentStackName = useMemo(() => {
     const found = stacks.find((s) => s.id === currentStackId);
     return found?.name ?? 'New Canvas';
+  }, [stacks, currentStackId]);
+
+  const currentStackLabel = useMemo(() => {
+    const found = stacks.find((s) => s.id === currentStackId);
+    return found?.type ?? '';
   }, [stacks, currentStackId]);
 
   const openWorkspace = (stackId: string | null = null) => {
@@ -127,8 +133,8 @@ export default function App() {
             path="/archives"
             element={<StacksPage stacks={stacks} onCreateStack={createStack} onUpdateStack={updateStack} onDeleteStack={deleteStack} onOpenStack={openWorkspace} />}
           />
-          <Route path="/workspace" element={<WorkspacePage />} />
-          <Route path="/workspace/:stackId" element={<WorkspacePage />} />
+          <Route path="/workspace" element={<WorkspacePage currentStackLabel={currentStackLabel} />} />
+          <Route path="/workspace/:stackId" element={<WorkspacePage currentStackLabel={currentStackLabel} />} />
         </Routes>
       </main>
     </div>

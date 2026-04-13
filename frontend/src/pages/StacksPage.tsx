@@ -30,7 +30,7 @@ export default function StacksPage({ stacks, onCreateStack, onUpdateStack, onDel
         <header className="mb-12 border-b-2 border-textBlack pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-7xl md:text-9xl font-display uppercase tracking-wide leading-none">Archives</h1>
-            <p className="font-medium mt-6 max-w-md text-sm border-l-2 border-textBlack pl-4">A brutalist repository for your scattered nodes. Organized by structural necessity.</p>
+            <p className="font-medium mt-6 max-w-md text-sm border-l-2 border-textBlack pl-4">A repository for your scattered nodes. Organized by structural necessity.</p>
           </div>
           <div className="text-right border-2 border-textBlack bg-white px-6 py-4 shadow-[4px_4px_0px_#111]">
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Total Volumes</p>

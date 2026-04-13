@@ -1,10 +1,12 @@
 import { ArrowRight, Asterisk, X } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceNodeData } from '../../types/workspace';
+import { chatOnce } from '../../services/chatService.ts';
 
 type AIPanelProps = {
   visible: boolean;
   onClose: () => void;
+  stackId?: string;
   workspaceNodes?: WorkspaceNodeData[];
   onGenerateClusters?: () => Promise<void> | void;
 };
@@ -62,7 +64,7 @@ async function blobUrlToDataUrl(blobUrl: string): Promise<string | null> {
   }
 }
 
-export default function AIPanel({ visible, onClose, workspaceNodes = [], onGenerateClusters }: AIPanelProps) {
+export default function AIPanel({ visible, onClose, stackId, workspaceNodes = [], onGenerateClusters }: AIPanelProps) {
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -98,19 +100,6 @@ export default function AIPanel({ visible, onClose, workspaceNodes = [], onGener
     const content = (overrideMessage ?? draft).trim();
     if (!content || loading) return;
 
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY as string | undefined;
-    if (!apiKey) {
-      setMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: 'user', content },
-        { id: crypto.randomUUID(), role: 'assistant', content: 'Missing VITE_OPENAI_API_KEY in .env.local' }
-      ]);
-      if (!overrideMessage) {
-        setDraft('');
-      }
-      return;
-    }
-
     const nextUserMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content };
     setMessages((prev) => [...prev, nextUserMessage]);
     if (!overrideMessage) {
@@ -119,96 +108,21 @@ export default function AIPanel({ visible, onClose, workspaceNodes = [], onGener
     setLoading(true);
 
     try {
-      const imagePayloads = await Promise.all(
-        imageNodes.map(async (node) => {
-          if (!node.imageSrc) return null;
-          const dataUrl = await blobUrlToDataUrl(node.imageSrc);
-          if (!dataUrl) return null;
-          return {
-            id: node.id,
-            label: node.label ?? '',
-            dataUrl
-          };
-        })
-      );
-
-      const validImagePayloads = imagePayloads.filter((item): item is { id: string; label: string; dataUrl: string } => Boolean(item));
-
-      const prompt = [
-        'You are a workspace copilot. Answer briefly and concretely.',
-        'You MUST use all available evidence types: text, URL, and image nodes.',
-        'Do not claim preferences are unknown if there is any evidence in text labels, URL domains, or attached images.',
-        'Goal: aggregate similar materials and provide one precise final answer with no redundancy.',
-        'Return ONLY strict JSON with schema: {"answer": string, "finalAnswer"?: string}.',
-        'Do not add markdown.',
-        'Workspace nodes:',
-        JSON.stringify(nodeContext),
-        'URL nodes (explicit):',
-        JSON.stringify(urlNodes.map((n) => ({ id: n.id, label: n.label ?? '', url: n.url ?? '' }))),
-        'Attached images metadata:',
-        JSON.stringify(validImagePayloads.map((img) => ({ id: img.id, label: img.label }))),
-        'User question:',
-        content
+      const stackContext = [
+        `Workspace node summary: ${JSON.stringify(nodeContext)}`,
+        `URL node summary: ${JSON.stringify(urlNodes.map((n) => ({ id: n.id, label: n.label ?? '', url: n.url ?? '' })))}`,
+        `Image node summary: ${JSON.stringify(imageNodes.map((n) => ({ id: n.id, label: n.label ?? '' })))}`,
       ].join('\n');
 
-      const contentParts: Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }> = [
-        { type: 'input_text', text: prompt }
-      ];
-
-      validImagePayloads.forEach((img) => {
-        contentParts.push({ type: 'input_image', image_url: img.dataUrl });
+      const answer = await chatOnce({
+        question: `${content}\n\n${stackContext}`,
+        stack_id: stackId || 'default',
+        mode: 'patterns',
+        user_id: 'workspace-user',
+        session_id: 'workspace-session'
       });
 
-      const res = await fetch('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4.1-mini',
-          input: [
-            {
-              role: 'user',
-              content: contentParts
-            }
-          ],
-          temperature: 0.3
-        })
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: `Request failed: ${res.status} ${text.slice(0, 180)}` }]);
-        return;
-      }
-
-      const data = await res.json();
-      const rawAnswer =
-        (typeof data.output_text === 'string' && data.output_text) ||
-        (Array.isArray(data.output)
-          ? data.output
-              .flatMap((item: any) => (Array.isArray(item.content) ? item.content : []))
-              .map((c: any) => c.text || '')
-              .join('\n')
-          : '') ||
-        'No response text.';
-
-      const structured = parseStructuredAIAnswer(rawAnswer);
-
-      if (structured) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: structured.finalAnswer || structured.answer || 'No response text.'
-          }
-        ]);
-        return;
-      }
-
-      setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: rawAnswer.trim() }]);
+      setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: (answer || 'No response text.').trim() }]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: `Request error: ${message}` }]);

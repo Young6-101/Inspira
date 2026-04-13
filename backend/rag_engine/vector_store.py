@@ -19,11 +19,17 @@ from backend.settings import settings
 
 
 class InspiraVault:
-	def __init__(self, db_path="./inspira_db"):
+	def __init__(self, db_path="./inspira_db_vault"): # 分开存储，避免冲突
 		self.client = chromadb.PersistentClient(path=db_path)
-		self.embedder = CLIPEmbedder()
+		self._embedder = None
 		self.cache_client = self._init_cache_client()
 		self.cache_enabled = settings.retrieval_cache_enabled and self.cache_client is not None
+
+	@property
+	def embedder(self):
+		if self._embedder is None:
+			self._embedder = CLIPEmbedder()
+		return self._embedder
 
 	# ── Cache helpers (unchanged) ──────────────────────────
 

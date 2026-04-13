@@ -36,7 +36,7 @@ class MemoryStore:
 				"provider": "chroma",
 				"config": {
 					"collection_name": "mem0_facts",
-					"path": "./inspira_db",
+					"path": "./inspira_db_memory",
 				}
 			},
 			"llm": {

@@ -4,8 +4,9 @@ Handles Stack/File metadata in SQLite + Vector processing in Chroma.
 """
 import json
 from uuid import uuid4
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 from sse_starlette.sse import EventSourceResponse
 
@@ -21,9 +22,16 @@ from backend.main_types import ChatRequest, ChatResponse
 app = FastAPI(title="Inspira Backend API")
 
 # --- CORS ---
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,6 +47,18 @@ def on_startup():
 app.include_router(stacks.router)
 app.include_router(files.router)
 app.include_router(ai.router)
+
+
+@app.get("/debug/langgraph/mermaid", response_class=PlainTextResponse)
+def debug_langgraph_mermaid():
+    """Return current LangGraph topology as Mermaid text for visualization."""
+    try:
+        graph = reasoning_app.get_graph()
+        if hasattr(graph, "draw_mermaid"):
+            return graph.draw_mermaid()
+        return str(graph)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to render graph: {str(e)}")
 
 @app.get("/health")
 async def health_check():

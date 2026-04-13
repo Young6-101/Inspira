@@ -22,7 +22,7 @@ def _get_model() -> SentenceTransformer:
 			trust_remote_code=True,
 			device=settings.clip_device,
 		)
-		print(f"--- [CLIP] Model loaded. Embedding dim = {_model.get_sentence_embedding_dimension()} ---")
+		print(f"--- [CLIP] Model loaded successfully ---")
 	return _model
 
 

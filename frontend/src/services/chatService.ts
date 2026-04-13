@@ -12,8 +12,13 @@ export type ChatStreamPayload = {
     session_id?: string;
 };
 
+function getApiBaseUrl(): string {
+    const envApiUrl = (import.meta as any).env.VITE_API_URL;
+    return envApiUrl || ((import.meta as any).env.DEV ? '/api' : 'http://127.0.0.1:8000');
+}
+
 export async function* streamChat(payload: ChatStreamPayload): AsyncGenerator<string> {
-    const apiUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
 
     const response = await fetch(`${apiUrl}/chat/stream`, {
         method: 'POST',
@@ -54,4 +59,21 @@ export async function* streamChat(payload: ChatStreamPayload): AsyncGenerator<st
             }
         }
     }
+}
+
+export async function chatOnce(payload: ChatStreamPayload): Promise<string> {
+    const apiUrl = getApiBaseUrl();
+
+    const response = await fetch(`${apiUrl}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        throw new Error(`Chat failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return (data?.answer || '').toString();
 }

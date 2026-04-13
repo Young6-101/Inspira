@@ -5,7 +5,12 @@ import { buildClusterGraphWithAI } from '../utils/workspaceAiCluster';
 import { buildWorkspaceNodesFromFiles, filterAcceptedFiles } from '../utils/workspaceFiles';
 import { organizeWorkspaceNodes } from '../utils/workspaceLayout';
 
-export default function useWorkspace() {
+const getApiBaseUrl = (): string => {
+  const envApiUrl = (import.meta as any).env.VITE_API_URL;
+  return envApiUrl || ((import.meta as any).env.DEV ? '/api' : 'http://127.0.0.1:8000');
+};
+
+export default function useWorkspace(stackId?: string) {
   const [nodes, setNodes] = useState<WorkspaceNodeData[]>([]);
   const [aiVisible, setAiVisible] = useState<boolean>(true);
   const [coords, setCoords] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -111,6 +116,23 @@ export default function useWorkspace() {
 
     result.imageUrls.forEach((url) => imageBlobUrlsRef.current.add(url));
     setNodes((prev) => [...prev, ...result.nodes]);
+
+    if (!stackId) return;
+
+    const apiUrl = getApiBaseUrl();
+    for (const file of accepted) {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        await fetch(`${apiUrl}/stacks/${encodeURIComponent(stackId)}/files`, {
+          method: 'POST',
+          body: formData
+        });
+      } catch (error) {
+        console.error('Upload to backend failed', error);
+      }
+    }
   };
 
   const addThoughtNode = (text: string) => {
@@ -128,6 +150,14 @@ export default function useWorkspace() {
     };
 
     setNodes((prev) => [...prev, nextNode]);
+
+    if (!stackId) return;
+    const apiUrl = getApiBaseUrl();
+    void fetch(`${apiUrl}/stacks/${encodeURIComponent(stackId)}/files/text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: normalized, label: 'TXT_NODE' })
+    }).catch((error) => console.error('Create text node failed', error));
   };
 
   const addUrlNode = (rawUrl: string) => {
@@ -145,6 +175,14 @@ export default function useWorkspace() {
     };
 
     setNodes((prev) => [...prev, nextNode]);
+
+    if (!stackId) return;
+    const apiUrl = getApiBaseUrl();
+    void fetch(`${apiUrl}/stacks/${encodeURIComponent(stackId)}/files/url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: normalized, label: 'URL_NODE' })
+    }).catch((error) => console.error('Create url node failed', error));
   };
 
   const onMouseDownNode = (id: string, e: ReactMouseEvent, node: WorkspaceNodeData) => {
