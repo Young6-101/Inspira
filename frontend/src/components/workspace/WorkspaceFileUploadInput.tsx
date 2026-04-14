@@ -14,9 +14,11 @@ export default function WorkspaceFileUploadInput({ inputRef, onUpload }: Workspa
       accept=".txt,.jpg,.jpeg,.mp3,.flac,.ppt,.pptx,.doc,.docx,.pdf,.mp4,.mov,.webm,.url"
       multiple
       onChange={async (e) => {
-        if (!e.target.files || e.target.files.length === 0) return;
-        await onUpload(e.target.files);
-        e.currentTarget.value = '';
+        const input = e.currentTarget;
+        const files = input.files;
+        if (!files || files.length === 0) return;
+        await onUpload(files);
+        input.value = '';
       }}
     />
   );

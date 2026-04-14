@@ -1,6 +1,6 @@
 import os
 import shutil
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlmodel import Session, select
 from typing import List
 from uuid import uuid4
@@ -28,6 +28,7 @@ class UrlNodeCreate(BaseModel):
 @router.post("", response_model=FileResponse)
 async def upload_stack_file(
     stack_id: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: Session = Depends(get_session)
 ):
@@ -38,7 +39,7 @@ async def upload_stack_file(
         filename = file.filename or "unknown"
         upload_dir = "uploads"
         os.makedirs(upload_dir, exist_ok=True)
-        temp_path = os.path.join(upload_dir, f"tmp_{uuid4().hex}_{filename}")
+        temp_path = os.path.join(upload_dir, f"{stack_id}_{filename}")
 
         # Save to disk
         with open(temp_path, "wb") as buffer:
@@ -65,14 +66,13 @@ async def upload_stack_file(
         session.commit()
         session.refresh(db_file)
 
-        # Dispatch background task
-        task = process_file_task.delay(temp_path, filename, stack_id, db_file.id)
-        
-        # Update record with task_id
-        db_file.task_id = task.id
+        # Dispatch background task natively via FastAPI to prevent blocking the event loop
+        db_file.task_id = "background-thread"
         session.add(db_file)
         session.commit()
         session.refresh(db_file)
+        
+        background_tasks.add_task(process_file_task, temp_path, filename, stack_id, db_file.id)
 
         return db_file
     except Exception as e:
@@ -85,7 +85,7 @@ def list_stack_files(stack_id: str, session: Session = Depends(get_session)):
 
 
 @router.post("/text", response_model=FileResponse)
-def create_text_node(stack_id: str, payload: TextNodeCreate, session: Session = Depends(get_session)):
+def create_text_node(stack_id: str, payload: TextNodeCreate, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     text = (payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text cannot be empty")
@@ -105,13 +105,13 @@ def create_text_node(stack_id: str, payload: TextNodeCreate, session: Session = 
 
     chunks = split_text(text)
     if chunks:
-        vault.store_chunks(stack_id, chunks, source=filename)
+        background_tasks.add_task(vault.store_chunks, stack_id, chunks, source=filename)
 
     return db_file
 
 
 @router.post("/url", response_model=FileResponse)
-def create_url_node(stack_id: str, payload: UrlNodeCreate, session: Session = Depends(get_session)):
+def create_url_node(stack_id: str, payload: UrlNodeCreate, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     url = (payload.url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL cannot be empty")
@@ -129,7 +129,9 @@ def create_url_node(stack_id: str, payload: UrlNodeCreate, session: Session = De
     session.commit()
     session.refresh(db_file)
 
-    vault.store_chunks(stack_id, [f"URL: {url}"], source=filename)
+    session.refresh(db_file)
+
+    background_tasks.add_task(vault.store_chunks, stack_id, [f"URL: {url}"], source=filename)
 
     return db_file
 

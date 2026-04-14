@@ -24,18 +24,20 @@ function layoutCluster(index: number): { x: number; y: number } {
 
 export async function buildClusterGraphWithAI(
   nodes: WorkspaceNodeData[],
+  stackId: string | undefined,
   onStep?: (msg: string, stage: number) => void
 ): Promise<BuildClusterGraphResult> {
   if (nodes.length === 0) return { clusters: [], edges: [] };
 
   try {
     const meta = (import.meta as any);
-    const apiUrl = (meta.env && meta.env.VITE_API_URL) || 'http://localhost:8000';
+    const envApiUrl = (meta.env && meta.env.VITE_API_URL) || '';
+    const apiUrl = envApiUrl || ((meta.env && meta.env.DEV) ? '/api' : 'http://127.0.0.1:8000');
 
     const res = await fetch(`${apiUrl}/ai/cluster`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes })
+      body: JSON.stringify({ nodes, stack_id: stackId })
     });
 
     if (!res.ok) throw new Error('Backend clustering failed');

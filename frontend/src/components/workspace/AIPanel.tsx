@@ -67,8 +67,23 @@ async function blobUrlToDataUrl(blobUrl: string): Promise<string | null> {
 export default function AIPanel({ visible, onClose, stackId, workspaceNodes = [], onGenerateClusters }: AIPanelProps) {
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    if (!stackId) return [];
+    try {
+      const saved = localStorage.getItem(`inspira_chat_${stackId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!stackId) return;
+    if (messages.length > 0 || localStorage.getItem(`inspira_chat_${stackId}`)) {
+      localStorage.setItem(`inspira_chat_${stackId}`, JSON.stringify(messages));
+    }
+  }, [messages, stackId]);
 
   const nodeContext = useMemo(
     () =>
@@ -108,14 +123,13 @@ export default function AIPanel({ visible, onClose, stackId, workspaceNodes = []
     setLoading(true);
 
     try {
-      const stackContext = [
-        `Workspace node summary: ${JSON.stringify(nodeContext)}`,
-        `URL node summary: ${JSON.stringify(urlNodes.map((n) => ({ id: n.id, label: n.label ?? '', url: n.url ?? '' })))}`,
-        `Image node summary: ${JSON.stringify(imageNodes.map((n) => ({ id: n.id, label: n.label ?? '' })))}`,
-      ].join('\n');
+      const filenames = workspaceNodes.map(n => n.label).filter(Boolean);
+      const stackContext = filenames.length > 0
+        ? `\n\n[System Note: The current workspace contains these files: ${filenames.join(', ')}. Please rely on your retrieval tools to read their contents.]`
+        : '';
 
       const answer = await chatOnce({
-        question: `${content}\n\n${stackContext}`,
+        question: `${content}${stackContext}`,
         stack_id: stackId || 'default',
         mode: 'patterns',
         user_id: 'workspace-user',
@@ -133,7 +147,7 @@ export default function AIPanel({ visible, onClose, stackId, workspaceNodes = []
 
   return (
     <aside
-      className={`bg-white flex flex-col shrink-0 transition-all duration-300 ease-out relative z-30 overflow-hidden ${visible ? 'w-[360px] border-l border-textBlack' : 'w-0 border-l-0 pointer-events-none'}`}
+      className={`bg-white flex flex-col shrink-0 transition-all duration-300 ease-out relative z-30 overflow-hidden ${visible ? 'w-[480px] border-l border-textBlack' : 'w-0 border-l-0 pointer-events-none'}`}
     >
       <div className="h-14 border-b-2 border-textBlack flex items-center justify-between px-4 shrink-0 bg-bgCream">
         <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-widest text-textBlack">

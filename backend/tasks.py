@@ -22,6 +22,9 @@ celery_app = Celery(
 	backend=settings.redis_url,
 )
 
+# For the presentation, run everything synchronously (No Redis or Celery Worker needed!)
+celery_app.conf.update(task_always_eager=True, task_eager_propagates=True)
+
 vault = InspiraVault()
 image_describer = ImageDescriber()
 audio_transcriber = AudioTranscriber()
@@ -31,14 +34,19 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 
 def _store_extracted_images(stack_id: str, images: list[dict], source_file: str):
 	"""Store extracted images (from PDF/PPT) into image_collection via CLIP."""
+	count = 0
 	for img in images:
-		vault.store_image_bytes(
-			stack_id,
-			img["bytes"],
-			source=f"{source_file}/{img['name']}",
-		)
-	if images:
-		print(f"--- [TASK] Stored {len(images)} embedded images from {source_file} → image_collection ---")
+		try:
+			vault.store_image_bytes(
+				stack_id,
+				img["bytes"],
+				source=f"{source_file}/{img['name']}",
+			)
+			count += 1
+		except Exception as e:
+			print(f"--- [WARN] Skipping image embedding for {img['name']}: {e} ---")
+	if count > 0:
+		print(f"--- [TASK] Stored {count} embedded images from {source_file} → image_collection ---")
 
 
 @celery_app.task
@@ -70,7 +78,10 @@ def process_file_task(temp_path: str, filename: str, stack_id: str, db_file_id: 
 			with open(temp_path, "rb") as f:
 				image_bytes = f.read()
 			# 1. CLIP image embedding → image_collection
-			vault.store_image_bytes(stack_id, image_bytes, source=filename, save_path=temp_path)
+			try:
+				vault.store_image_bytes(stack_id, image_bytes, source=filename, save_path=temp_path)
+			except Exception as e:
+				print(f"--- [WARN] Skipping raw image embedding: {e} ---")
 			# 2. Vision description → text → text_collection
 			text_content = image_describer.describe_image_bytes(image_bytes, filename)
 
@@ -95,8 +106,8 @@ def process_file_task(temp_path: str, filename: str, stack_id: str, db_file_id: 
 					session.add(file_rec)
 					session.commit()
 
-		# Remove temp file
-		if os.path.exists(temp_path):
+		# Remove temp file (except standalone images we want the frontend grid to permanently display)
+		if os.path.exists(temp_path) and ext not in IMAGE_EXTENSIONS:
 			os.remove(temp_path)
 
 		return {"status": "success", "filename": filename, "chunks": chunks_stored, "db_id": db_file_id}

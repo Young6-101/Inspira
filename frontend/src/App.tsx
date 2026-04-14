@@ -24,22 +24,61 @@ const initialStacks: Stack[] = [
   { id: '5', name: 'Raw Dump', fileCount: 84, type: 'Unsorted' }
 ];
 
+async function parseJsonSafe<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  const contentType = res.headers.get('content-type') || '';
+
+  if (!res.ok) {
+    const message = text?.trim() || `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+
+  if (!text?.trim()) {
+    throw new Error('Empty response body');
+  }
+
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error(`Non-JSON response: ${text.slice(0, 120)}`);
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Invalid JSON response: ${text.slice(0, 120)}`);
+  }
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [stacks, setStacks] = useState<Stack[]>([]); 
+  const [stacks, setStacks] = useState<Stack[]>([]);
   const [currentStackId, setCurrentStackId] = useState<string | null>(null);
   const { user, userInitial, signIn, signUp, signOut } = useAuth();
 
   const envApiUrl = (import.meta as any).env.VITE_API_URL;
   const apiUrl = envApiUrl || ((import.meta as any).env.DEV ? '/api' : 'http://127.0.0.1:8000');
 
-  useEffect(() => {
+  const fetchStacks = () => {
     fetch(`${apiUrl}/stacks`)
-      .then(res => res.json())
-      .then(data => setStacks(data))
+      .then(async (res) => {
+        if (!res.ok) throw new Error('API Error');
+        const text = await res.text();
+        return JSON.parse(text) as Stack[];
+      })
+      .then(data => setStacks(Array.isArray(data) ? data : []))
       .catch(err => console.error("Failed to fetch stacks", err));
+  };
+
+  useEffect(() => {
+    fetchStacks();
   }, [apiUrl]);
+
+  useEffect(() => {
+    if (location.pathname === '/archives' || location.pathname === '/') {
+      fetchStacks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   const inWorkspace = location.pathname.startsWith('/workspace');
 
@@ -73,7 +112,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: payload?.name, label: payload?.label })
       });
-      const newStack = await res.json();
+      const newStack = await parseJsonSafe<Stack>(res);
       setStacks(prev => [newStack, ...prev]);
     } catch (err) {
       console.error("Create stack failed", err);
@@ -88,7 +127,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: payload?.name, label: payload?.label })
       });
-      const updated = await res.json();
+      const updated = await parseJsonSafe<Stack>(res);
       setStacks((prev) => prev.map((s) => (s.id === id ? updated : s)));
     } catch (err) {
       console.error("Update stack failed", err);

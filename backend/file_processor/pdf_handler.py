@@ -62,7 +62,6 @@ def extract_from_pdf(file_path: str, min_image_size: int = 5000) -> PDFExtractRe
 						print(f"--- [WARN] Could not extract image xref={xref} on page {page_num}: {e} ---")
 
 		clean_text = " ".join(" ".join(text_parts).split())
-		print(f"--- [LOG] Extracted {len(doc)} pages, {len(images)} images from {path.name} ---")
 		return PDFExtractResult(text=clean_text, images=images)
 
 	except Exception as e:

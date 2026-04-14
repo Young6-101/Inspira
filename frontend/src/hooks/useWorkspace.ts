@@ -25,6 +25,8 @@ export default function useWorkspace(stackId?: string) {
   const imageBlobUrlsRef = useRef<Set<string>>(new Set());
   const clusterTimersRef = useRef<number[]>([]);
 
+  const apiUrl = (import.meta as any).env.VITE_API_URL || 'http://127.0.0.1:8000';
+
   const snap = (value: number): number => Math.round(value / 40) * 40;
 
   const limitWords = (input: string, maxWords = 100): string => {
@@ -68,8 +70,39 @@ export default function useWorkspace(stackId?: string) {
     };
   };
 
+  useEffect(() => {
+    if (!stackId) return;
+    const loadStack = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/stacks/${stackId}/files`);
+        if (!res.ok) throw new Error('API errored');
+        const files: any[] = await res.json();
+        if (!Array.isArray(files)) return;
+
+        const restoredNodes = files.map((f, i) => {
+          const pos = getNextPosition(i);
+          return {
+            id: f.id,
+            type: f.type === 'url' ? 'url' : f.type === 'text' ? 'text' : f.type === 'image' ? 'image' : 'file',
+            label: f.label || f.filename,
+            x: pos.x,
+            y: pos.y,
+            url: f.type === 'url' ? f.text_preview : undefined,
+            textPreview: f.text_preview || f.filename,
+            imageSrc: f.type === 'image' ? `${apiUrl}/uploads/${stackId}_${f.filename}` : undefined
+          } as WorkspaceNodeData;
+        });
+        setNodes(restoredNodes);
+      } catch (err) {
+        console.error("Failed to restore nodes:", err);
+      }
+    };
+    loadStack();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stackId, apiUrl]);
+
   const layoutClustersNearAiPanel = (input: ClusterNodeData[], viewportWidth: number, aiPanelVisible: boolean): ClusterNodeData[] => {
-    const panelWidth = aiPanelVisible ? 360 : 0;
+    const panelWidth = aiPanelVisible ? 480 : 0;
     const clusterWidth = 240;
     const rightMargin = 24;
     const startY = 120;
@@ -104,7 +137,6 @@ export default function useWorkspace(stackId?: string) {
     if (source.length === 0) return;
 
     const accepted = filterAcceptedFiles(source);
-
     if (accepted.length === 0) return;
 
     const result = await buildWorkspaceNodesFromFiles({
@@ -117,21 +149,16 @@ export default function useWorkspace(stackId?: string) {
     result.imageUrls.forEach((url) => imageBlobUrlsRef.current.add(url));
     setNodes((prev) => [...prev, ...result.nodes]);
 
-    if (!stackId) return;
-
-    const apiUrl = getApiBaseUrl();
-    for (const file of accepted) {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        await fetch(`${apiUrl}/stacks/${encodeURIComponent(stackId)}/files`, {
+    // 🌟 后台静默发送给 API，让大模型吃透文件内容
+    if (stackId) {
+      accepted.forEach((file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        fetch(`${apiUrl}/stacks/${stackId}/files`, {
           method: 'POST',
           body: formData
-        });
-      } catch (error) {
-        console.error('Upload to backend failed', error);
-      }
+        }).catch(err => console.error("Upload to backend failed", err));
+      });
     }
   };
 
@@ -151,13 +178,14 @@ export default function useWorkspace(stackId?: string) {
 
     setNodes((prev) => [...prev, nextNode]);
 
-    if (!stackId) return;
-    const apiUrl = getApiBaseUrl();
-    void fetch(`${apiUrl}/stacks/${encodeURIComponent(stackId)}/files/text`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: normalized, label: 'TXT_NODE' })
-    }).catch((error) => console.error('Create text node failed', error));
+    // 🌟 后台静默上传文字节点
+    if (stackId) {
+      fetch(`${apiUrl}/stacks/${stackId}/files/text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: normalized, label: 'thought.txt' })
+      }).catch(err => console.error("Add text to backend failed", err));
+    }
   };
 
   const addUrlNode = (rawUrl: string) => {
@@ -176,13 +204,14 @@ export default function useWorkspace(stackId?: string) {
 
     setNodes((prev) => [...prev, nextNode]);
 
-    if (!stackId) return;
-    const apiUrl = getApiBaseUrl();
-    void fetch(`${apiUrl}/stacks/${encodeURIComponent(stackId)}/files/url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: normalized, label: 'URL_NODE' })
-    }).catch((error) => console.error('Create url node failed', error));
+    // 🌟 后台静默上传 URL 节点
+    if (stackId) {
+      fetch(`${apiUrl}/stacks/${stackId}/files/url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: normalized, label: 'link.url' })
+      }).catch(err => console.error("Add URL to backend failed", err));
+    }
   };
 
   const onMouseDownNode = (id: string, e: ReactMouseEvent, node: WorkspaceNodeData) => {
@@ -261,7 +290,7 @@ export default function useWorkspace(stackId?: string) {
       return;
     }
 
-    const graph = await buildClusterGraphWithAI(nodes);
+    const graph = await buildClusterGraphWithAI(nodes, stackId);
     setClustersManuallyMoved(false);
     setClusterNodes(layoutClustersNearAiPanel(graph.clusters, window.innerWidth, aiVisible));
     setClusterEdges(graph.edges);

@@ -27,8 +27,12 @@ class MemoryStore:
 		try:
 			redis_lib = importlib.import_module("redis")
 			self.client = redis_lib.from_url(settings.redis_url, decode_responses=True)
-		except Exception:
+			# Test the connection; if Redis is down, this raises ConnectionError
+			self.client.ping()
+		except Exception as e:
+			print(f"--- [WARN] Redis unavailable ({e}), STM disabled. ---")
 			self.client = None
+
 
 		# Mem0 for intelligent fact extraction
 		config = {

@@ -329,10 +329,11 @@ def generate_response_node(state: GraphState):
 	mtm_text = state.get("mtm_text", "")
 
 	if not context and state.get("intent") != "refine":
-		system_prompt = (
+		system_instruction = (
 			"You are 'Inspira', an AI assistant. The user hasn't uploaded any materials to this stack yet, "
 			"or no relevant context was found. Let them know they can upload files (PDF, PPT, images, audio, text)."
 		)
+		context_text = ""
 	else:
 		mode_instructions = {
 			"patterns": "Identify common themes, recurring patterns, and synthesize a cohesive overview.",
@@ -344,22 +345,22 @@ def generate_response_node(state: GraphState):
 		instruction = mode_instructions.get(state["mode"], mode_instructions["patterns"])
 		context_text = "\n\n".join(f"[Fragment {i + 1}]: {c}" for i, c in enumerate(context))
 
-		system_prompt = f"""You are 'Inspira', an AI inspiration engine operating in '{state['mode']}' mode.
-
-INSTRUCTION: {instruction}
-
-Short-term Memory: {stm_text or '[none]'}
-Personalized Facts: {mtm_text or '[none]'}
-Context: {context_text}"""
+		system_instruction = f"You are 'Inspira', an AI inspiration engine operating in '{state['mode']}' mode.\n\nINSTRUCTION: {instruction}"
 
 	llm = get_llm(model=state.get("model"), temperature=0.7)
 	prompt = ChatPromptTemplate.from_messages([
-		("system", f"{system_prompt}\n\nCRITICAL: Keep your response concise (max 150 words)."),
+		("system", "{system_instruction}\n\nShort-term Memory: {stm_text}\nPersonalized Facts: {mtm_text}\nContext: {context_text}\n\nCRITICAL: Keep your response concise (max 150 words)."),
 		("human", "{question}"),
 	])
 	
 	chain = prompt | llm
-	response = chain.invoke({"question": state["question"]})
+	response = chain.invoke({
+		"system_instruction": system_instruction,
+		"stm_text": stm_text or "[none]",
+		"mtm_text": mtm_text or "[none]",
+		"context_text": context_text,
+		"question": state["question"]
+	})
 	answer = response.content
 	
 	return {"answer": answer}

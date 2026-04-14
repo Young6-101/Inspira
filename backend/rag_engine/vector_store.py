@@ -36,8 +36,11 @@ class InspiraVault:
 	def _init_cache_client(self):
 		try:
 			import redis
-			return redis.from_url(settings.redis_url, decode_responses=True)
-		except Exception:
+			client = redis.from_url(settings.redis_url, decode_responses=True)
+			client.ping()  
+			return client
+		except Exception as e:
+			print(f"--- [WARN] Redis unavailable ({e}), Retrieval Cache disabled. ---")
 			return None
 
 	def _normalize_query(self, query: str) -> str:

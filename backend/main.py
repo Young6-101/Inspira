@@ -4,6 +4,7 @@ Handles Stack/File metadata in SQLite + Vector processing in Chroma.
 """
 import json
 from uuid import uuid4
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
@@ -19,7 +20,15 @@ from backend.reasoning.graph import app as reasoning_app
 from backend.settings import settings
 from backend.main_types import ChatRequest, ChatResponse
 
-app = FastAPI(title="Inspira Backend API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    print("--- [BACKEND] SQLite Database Initialized ---")
+    yield
+
+
+app = FastAPI(title="Inspira Backend API", lifespan=lifespan)
 
 # --- CORS ---
 allowed_origins = [
@@ -37,16 +46,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Startup ---
-@app.on_event("startup")
-def on_startup():
-    init_db()
-    print("--- [BACKEND] SQLite Database Initialized ---")
-
 # --- Routers ---
 app.include_router(stacks.router)
 app.include_router(files.router)
 app.include_router(ai.router)
+
+import os
+from fastapi.staticfiles import StaticFiles
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 @app.get("/debug/langgraph/mermaid", response_class=PlainTextResponse)
