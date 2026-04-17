@@ -1,14 +1,24 @@
 import { useState, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 import AIPanel from '../components/workspace/AIPanel.tsx';
 import ThoughtInputModal from '../components/workspace/ThoughtInputModal.tsx';
+import WorkspaceClusterOverlay from '../components/workspace/WorkspaceClusterOverlay.tsx';
+import WorkspaceFileUploadInput from '../components/workspace/WorkspaceFileUploadInput.tsx';
 import WorkspaceNode from '../components/workspace/WorkspaceNode.tsx';
 import WorkspaceToolbar from '../components/workspace/WorkspaceToolbar.tsx';
+import URLInputModal from '../components/workspace/URLInputModal.tsx';
 import useWorkspace from '../hooks/useWorkspace.ts';
 
-export default function WorkspacePage() {
+type WorkspacePageProps = {
+  currentStackLabel?: string;
+};
+
+export default function WorkspacePage({ currentStackLabel = '' }: WorkspacePageProps) {
+  const { stackId } = useParams<{ stackId: string }>();
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isThoughtOpen, setIsThoughtOpen] = useState(false);
+  const [isUrlInputOpen, setIsUrlInputOpen] = useState(false);
   const {
     nodes,
     aiVisible,
@@ -17,12 +27,19 @@ export default function WorkspacePage() {
     setAiVisible,
     uploadFiles,
     addThoughtNode,
+    addUrlNode,
     removeNode,
     renameNode,
     onMouseDownNode,
+    onMouseDownCluster,
     onMouseMoveCanvas,
-    organizeFiles
-  } = useWorkspace();
+    organizeFiles,
+    clusterNodes,
+    clusterEdges,
+    clusterStage,
+    runClusterGraph,
+    clearClusterGraph
+  } = useWorkspace(stackId);
 
   return (
     <div className="absolute inset-0 flex border-t border-textBlack">
@@ -33,6 +50,14 @@ export default function WorkspacePage() {
           onMouseMove={(e) => canvasRef.current && onMouseMoveCanvas(e, canvasRef.current.getBoundingClientRect())}
           className="absolute inset-0 w-[4000px] h-[4000px]"
         >
+          <WorkspaceClusterOverlay
+            nodes={nodes}
+            clusterNodes={clusterNodes}
+            clusterEdges={clusterEdges}
+            clusterStage={clusterStage}
+            onMouseDownCluster={onMouseDownCluster}
+          />
+
           {nodes.map((node) => (
             <WorkspaceNode
               key={node.id}
@@ -47,8 +72,12 @@ export default function WorkspacePage() {
 
         <WorkspaceToolbar
           onTypeThoughts={() => setIsThoughtOpen(true)}
+          onInputUrl={() => setIsUrlInputOpen(true)}
           onAdd={() => fileInputRef.current?.click()}
           onOrganize={organizeFiles}
+          onCluster={runClusterGraph}
+          onClearCluster={clearClusterGraph}
+          clusterActive={clusterStage > 0}
           aiVisible={aiVisible}
           onToggleAi={() => setAiVisible((v: boolean) => !v)}
         />
@@ -59,27 +88,27 @@ export default function WorkspacePage() {
           onSubmit={(thought) => addThoughtNode(thought)}
         />
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          accept=".txt,.jpg,.jpeg,.mp3,.flac,.ppt,.pptx,.doc,.docx,.pdf,.mp4,.mov,.webm"
-          multiple
-          onChange={async (e) => {
-            if (!e.target.files || e.target.files.length === 0) return;
-            await uploadFiles(e.target.files);
-            e.currentTarget.value = '';
-          }}
+        <URLInputModal
+          isOpen={isUrlInputOpen}
+          onClose={() => setIsUrlInputOpen(false)}
+          onSubmit={(url) => addUrlNode(url)}
         />
 
+        <WorkspaceFileUploadInput inputRef={fileInputRef} onUpload={uploadFiles} />
+
         <div className="absolute top-6 left-6 flex gap-2">
+          {currentStackLabel ? (
+            <div className="bg-accentElectric/20 border-2 border-textBlack px-4 py-2 text-xs font-bold uppercase tracking-widest shadow-[4px_4px_0px_#111]">
+              Label: <span className="text-accentViolet">{currentStackLabel}</span>
+            </div>
+          ) : null}
           <div className="bg-white border-2 border-textBlack px-4 py-2 text-xs font-bold uppercase tracking-widest shadow-[4px_4px_0px_#111]">
             X: <span className="text-accentCoral">{String(coords.x).padStart(3, '0')}</span> Y: <span className="text-accentElectric">{String(coords.y).padStart(3, '0')}</span>
           </div>
         </div>
       </div>
 
-      <AIPanel visible={aiVisible} onClose={() => setAiVisible(false)} />
+      <AIPanel visible={aiVisible} onClose={() => setAiVisible(false)} stackId={stackId} workspaceNodes={nodes} onGenerateClusters={runClusterGraph} />
     </div>
   );
 }

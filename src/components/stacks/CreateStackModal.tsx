@@ -53,7 +53,7 @@ export default function CreateStackModal({
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Default: Untitled"
+              placeholder="Untitled"
               className="border border-textBlack px-3 py-2 text-sm"
             />
           </div>
@@ -63,7 +63,7 @@ export default function CreateStackModal({
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Default: Unsorted"
+              placeholder="Unsorted"
               className="border border-textBlack px-3 py-2 text-sm"
             />
           </div>

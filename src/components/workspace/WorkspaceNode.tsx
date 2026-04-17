@@ -4,8 +4,9 @@ import DocumentNode from './DocumentNode.tsx';
 import ImageNode from './ImageNode.tsx';
 import PresentationNode from './PresentationNode.tsx';
 import TextNode from './TextNode.tsx';
+import URLNode from './URLNode.tsx';
 import VideoNode from './VideoNode.tsx';
-import type { WorkspaceNodeData } from '../../hooks/useWorkspace';
+import type { WorkspaceNodeData } from '../../types/workspace';
 
 type WorkspaceNodeProps = {
   node: WorkspaceNodeData;
@@ -58,6 +59,14 @@ export default function WorkspaceNode({ node, dragging, onMouseDown, onDelete, o
     return (
       <div {...commonProps}>
         <VideoNode onDelete={onDelete} label={node.label} onRename={onRename} />
+      </div>
+    );
+  }
+
+  if (node.type === 'url') {
+    return (
+      <div {...commonProps}>
+        <URLNode onDelete={onDelete} label={node.label} url={node.url} onRename={onRename} />
       </div>
     );
   }

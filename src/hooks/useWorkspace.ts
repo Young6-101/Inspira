@@ -1,25 +1,53 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { ClusterEdgeData, ClusterNodeData, WorkspaceNodeData } from '../types/workspace';
+import { buildClusterGraphWithAI } from '../utils/workspaceAiCluster';
+import { buildWorkspaceNodesFromFiles, filterAcceptedFiles } from '../utils/workspaceFiles';
+import { organizeWorkspaceNodes } from '../utils/workspaceLayout';
 
-type NodeType = 'text' | 'image' | 'audio' | 'presentation' | 'document' | 'video';
-
-export type WorkspaceNodeData = {
-  id: string;
-  type: NodeType;
-  x: number;
-  y: number;
-  label?: string;
-  textPreview?: string;
-  imageSrc?: string;
+const getApiBaseUrl = (): string => {
+  const envApiUrl = (import.meta as any).env.VITE_API_URL;
+  return envApiUrl || ((import.meta as any).env.DEV ? '/api' : 'http://127.0.0.1:8000');
 };
 
-export default function useWorkspace() {
+export default function useWorkspace(stackId?: string) {
   const [nodes, setNodes] = useState<WorkspaceNodeData[]>([]);
   const [aiVisible, setAiVisible] = useState<boolean>(true);
   const [coords, setCoords] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [draggingClusterId, setDraggingClusterId] = useState<string | null>(null);
+  const [clustersManuallyMoved, setClustersManuallyMoved] = useState(() => {
+    if (!stackId) return false;
+    try { return localStorage.getItem(`inspira_cluster_moved_${stackId}`) === 'true'; } catch { return false; }
+  });
+  const [clusterNodes, setClusterNodes] = useState<ClusterNodeData[]>(() => {
+    if (!stackId) return [];
+    try { const saved = localStorage.getItem(`inspira_clusters_${stackId}`); return saved ? JSON.parse(saved) : []; } catch { return []; }
+  });
+  const [clusterEdges, setClusterEdges] = useState<ClusterEdgeData[]>(() => {
+    if (!stackId) return [];
+    try { const saved = localStorage.getItem(`inspira_edges_${stackId}`); return saved ? JSON.parse(saved) : []; } catch { return []; }
+  });
+  const [clusterStage, setClusterStage] = useState<0 | 1 | 2 | 3>(() => {
+    if (!stackId) return 0;
+    try { const saved = localStorage.getItem(`inspira_cluster_stage_${stackId}`); return saved ? parseInt(saved, 10) as any : 0; } catch { return 0; }
+  });
+
+  useEffect(() => {
+    if (!stackId) return;
+    if (clusterNodes.length > 0 || localStorage.getItem(`inspira_clusters_${stackId}`)) {
+      localStorage.setItem(`inspira_cluster_moved_${stackId}`, String(clustersManuallyMoved));
+      localStorage.setItem(`inspira_clusters_${stackId}`, JSON.stringify(clusterNodes));
+      localStorage.setItem(`inspira_edges_${stackId}`, JSON.stringify(clusterEdges));
+      localStorage.setItem(`inspira_cluster_stage_${stackId}`, String(clusterStage));
+    }
+  }, [clusterNodes, clusterEdges, clusterStage, clustersManuallyMoved, stackId]);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const clusterDragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const imageBlobUrlsRef = useRef<Set<string>>(new Set());
+  const clusterTimersRef = useRef<number[]>([]);
+
+  const apiUrl = (import.meta as any).env.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const snap = (value: number): number => Math.round(value / 40) * 40;
 
@@ -29,6 +57,24 @@ export default function useWorkspace() {
       return input.trim();
     }
     return words.slice(0, maxWords).join(' ');
+  };
+
+  const normalizeUrl = (input: string): string => {
+    const trimmed = input.trim();
+    if (!trimmed) return '';
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  };
+
+  const isLikelyUrl = (input: string): boolean => {
+    const normalized = normalizeUrl(input);
+    if (!normalized) return false;
+    try {
+      const parsed = new URL(normalized);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
   };
 
   const getNextPosition = (index: number) => {
@@ -44,6 +90,31 @@ export default function useWorkspace() {
       x: snap(baseX + col * spacingX),
       y: snap(baseY + row * spacingY)
     };
+  };
+
+  useEffect(() => {
+    if (!stackId) return;
+    const loadStack = async () => {
+      // Mock loading stack files
+      setNodes([]);
+    };
+    loadStack();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stackId, apiUrl]);
+
+  const layoutClustersNearAiPanel = (input: ClusterNodeData[], viewportWidth: number, aiPanelVisible: boolean): ClusterNodeData[] => {
+    const panelWidth = aiPanelVisible ? 480 : 0;
+    const clusterWidth = 240;
+    const rightMargin = 24;
+    const startY = 120;
+    const gapY = 170;
+    const x = Math.max(520, viewportWidth - panelWidth - clusterWidth - rightMargin);
+
+    return input.map((cluster, index) => ({
+      ...cluster,
+      x: snap(x),
+      y: snap(startY + index * gapY)
+    }));
   };
 
   const removeNode = (id: string) => {
@@ -66,93 +137,32 @@ export default function useWorkspace() {
     const source = Array.from(files);
     if (source.length === 0) return;
 
-    const accepted = source.filter((file) => {
-      const name = file.name.toLowerCase();
-      return (
-        name.endsWith('.txt') ||
-        name.endsWith('.jpg') ||
-        name.endsWith('.jpeg') ||
-        name.endsWith('.ppt') ||
-        name.endsWith('.pptx') ||
-        name.endsWith('.doc') ||
-        name.endsWith('.docx') ||
-        name.endsWith('.pdf') ||
-        name.endsWith('.mp4') ||
-        name.endsWith('.mov') ||
-        name.endsWith('.webm')
-      );
-    });
-
+    const accepted = filterAcceptedFiles(source);
     if (accepted.length === 0) return;
 
-    const startIndex = nodes.length;
-    const nextNodes: WorkspaceNodeData[] = [];
+    const result = await buildWorkspaceNodesFromFiles({
+      files: accepted,
+      startIndex: nodes.length,
+      getNextPosition,
+      limitWords
+    });
 
-    for (let i = 0; i < accepted.length; i += 1) {
-      const file = accepted[i];
-      const lower = file.name.toLowerCase();
-      const pos = getNextPosition(startIndex + i);
+    result.imageUrls.forEach((url) => imageBlobUrlsRef.current.add(url));
+    setNodes((prev) => [...prev, ...result.nodes]);
 
-      if (lower.endsWith('.txt')) {
-        const rawText = await file.text();
-        const textPreview = limitWords(rawText) || 'Empty text file';
-        nextNodes.push({
-          id: crypto.randomUUID(),
-          type: 'text',
-          x: pos.x,
-          y: pos.y,
-          label: file.name,
-          textPreview
-        });
-        continue;
-      }
-
-      if (lower.endsWith('.ppt') || lower.endsWith('.pptx')) {
-        nextNodes.push({
-          id: crypto.randomUUID(),
-          type: 'presentation',
-          x: pos.x,
-          y: pos.y,
-          label: file.name
-        });
-        continue;
-      }
-
-      if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.pdf')) {
-        nextNodes.push({
-          id: crypto.randomUUID(),
-          type: 'document',
-          x: pos.x,
-          y: pos.y,
-          label: file.name
-        });
-        continue;
-      }
-
-      if (lower.endsWith('.mp4') || lower.endsWith('.mov') || lower.endsWith('.webm')) {
-        nextNodes.push({
-          id: crypto.randomUUID(),
-          type: 'video',
-          x: pos.x,
-          y: pos.y,
-          label: file.name
-        });
-        continue;
-      }
-
-      const imageSrc = URL.createObjectURL(file);
-      imageBlobUrlsRef.current.add(imageSrc);
-      nextNodes.push({
-        id: crypto.randomUUID(),
-        type: 'image',
-        x: pos.x,
-        y: pos.y,
-        label: file.name,
-        imageSrc
+    // 🌟 禁用后台静默上传以实现纯前端 Mock
+    /* 
+    if (stackId) {
+      accepted.forEach((file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        fetch(`${apiUrl}/stacks/${stackId}/files`, {
+          method: 'POST',
+          body: formData
+        }).catch(err => console.error("Upload to backend failed", err));
       });
     }
-
-    setNodes((prev) => [...prev, ...nextNodes]);
+    */
   };
 
   const addThoughtNode = (text: string) => {
@@ -170,6 +180,45 @@ export default function useWorkspace() {
     };
 
     setNodes((prev) => [...prev, nextNode]);
+
+    // 🌟 禁用后台静默上传文本节点 (Mock)
+    /*
+    if (stackId) {
+      fetch(`${apiUrl}/stacks/${stackId}/files/text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: normalized, label: 'thought.txt' })
+      }).catch(err => console.error("Add text to backend failed", err));
+    }
+    */
+  };
+
+  const addUrlNode = (rawUrl: string) => {
+    const normalized = normalizeUrl(rawUrl);
+    if (!isLikelyUrl(normalized)) return;
+
+    const pos = getNextPosition(nodes.length);
+    const nextNode: WorkspaceNodeData = {
+      id: crypto.randomUUID(),
+      type: 'url',
+      x: pos.x,
+      y: pos.y,
+      label: 'URL_NODE',
+      url: normalized
+    };
+
+    setNodes((prev) => [...prev, nextNode]);
+
+    // 🌟 禁用后台静默上传 URL (Mock)
+    /*
+    if (stackId) {
+      fetch(`${apiUrl}/stacks/${stackId}/files/url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: normalized, label: 'link.url' })
+      }).catch(err => console.error("Add URL to backend failed", err));
+    }
+    */
   };
 
   const onMouseDownNode = (id: string, e: ReactMouseEvent, node: WorkspaceNodeData) => {
@@ -179,10 +228,25 @@ export default function useWorkspace() {
     dragOffset.current = { x: e.clientX - node.x, y: e.clientY - node.y };
   };
 
+  const onMouseDownCluster = (id: string, e: ReactMouseEvent, cluster: ClusterNodeData) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;
+    setDraggingClusterId(id);
+    setClustersManuallyMoved(true);
+    clusterDragOffset.current = { x: e.clientX - cluster.x, y: e.clientY - cluster.y };
+  };
+
   const onMouseMoveCanvas = (e: ReactMouseEvent, canvasRect: DOMRect) => {
     const relX = Math.round(e.clientX - canvasRect.left);
     const relY = Math.round(e.clientY - canvasRect.top);
     setCoords({ x: relX, y: relY });
+
+    if (draggingClusterId && e.buttons === 1) {
+      const nx = e.clientX - canvasRect.left - clusterDragOffset.current.x;
+      const ny = e.clientY - canvasRect.top - clusterDragOffset.current.y;
+      setClusterNodes((prev) => prev.map((n) => (n.id === draggingClusterId ? { ...n, x: nx, y: ny } : n)));
+      return;
+    }
 
     if (!draggingId || e.buttons !== 1) return;
 
@@ -201,62 +265,79 @@ export default function useWorkspace() {
     return () => window.removeEventListener('mouseup', finish);
   }, [draggingId]);
 
+  useEffect(() => {
+    if (!draggingClusterId) return;
+    const finish = () => {
+      setClusterNodes((prev) => prev.map((n) => (n.id === draggingClusterId ? { ...n, x: snap(n.x), y: snap(n.y) } : n)));
+      setDraggingClusterId(null);
+    };
+    window.addEventListener('mouseup', finish);
+    return () => window.removeEventListener('mouseup', finish);
+  }, [draggingClusterId]);
+
   const organizeFiles = () => {
     setDraggingId(null);
+    setDraggingClusterId(null);
 
-    const startX = 80;
-    const startY = 80;
-    const gap = 40;
-    const rightGutter = aiVisible ? 440 : 80;
-    const viewportUsableWidth = Math.max(360, window.innerWidth - rightGutter);
-    const maxX = Math.max(520, viewportUsableWidth);
+    setNodes((prev) => organizeWorkspaceNodes({ nodes: prev, aiVisible, viewportWidth: window.innerWidth }));
+  };
 
-    const sizeByType: Record<NodeType, { width: number; height: number }> = {
-      text: { width: 256, height: 170 },
-      image: { width: 256, height: 255 },
-      audio: { width: 288, height: 96 },
-      presentation: { width: 360, height: 230 },
-      document: { width: 280, height: 430 },
-      video: { width: 420, height: 280 }
-    };
+  const clearClusterAnimation = () => {
+    clusterTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    clusterTimersRef.current = [];
+  };
 
-    setNodes((prev) => {
-      const sorted = [...prev].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const runClusterGraph = async () => {
+    clearClusterAnimation();
 
-      let currentX = startX;
-      let currentY = startY;
-      let rowHeight = 0;
+    if (nodes.length === 0) {
+      setClusterNodes([]);
+      setClusterEdges([]);
+      setClusterStage(0);
+      return;
+    }
 
-      return sorted.map((node) => {
-        let size = sizeByType[node.type] ?? { width: 280, height: 180 };
+    const graph = await buildClusterGraphWithAI(nodes, stackId);
+    setClustersManuallyMoved(false);
+    setClusterNodes(layoutClustersNearAiPanel(graph.clusters, window.innerWidth, aiVisible));
+    setClusterEdges(graph.edges);
 
-        if (node.type === 'text') {
-          const wordCount = (node.textPreview || '').trim().split(/\s+/).filter(Boolean).length;
-          const estimatedHeight = Math.min(420, 170 + Math.ceil(Math.max(wordCount - 24, 0) / 12) * 24);
-          size = { width: 256, height: estimatedHeight };
-        }
+    if (graph.clusters.length === 0) {
+      setClusterStage(0);
+      return;
+    }
 
-        if (currentX + size.width > maxX && currentX !== startX) {
-          currentX = startX;
-          currentY = snap(currentY + rowHeight + gap);
-          rowHeight = 0;
-        }
+    setClusterStage(1);
 
-        const next = {
-          ...node,
-          x: snap(currentX),
-          y: snap(currentY)
-        };
+    const t1 = window.setTimeout(() => setClusterStage(2), 500);
+    const t2 = window.setTimeout(() => setClusterStage(3), 1100);
+    clusterTimersRef.current = [t1, t2];
+  };
 
-        currentX = snap(currentX + size.width + gap);
-        rowHeight = Math.max(rowHeight, size.height);
-        return next;
-      });
-    });
+  const clearClusterGraph = () => {
+    clearClusterAnimation();
+    setDraggingClusterId(null);
+    setClustersManuallyMoved(false);
+    setClusterStage(0);
+    setClusterNodes([]);
+    setClusterEdges([]);
   };
 
   useEffect(() => {
+    if (clusterNodes.length === 0 || clustersManuallyMoved) return;
+
+    const relayout = () => {
+      setClusterNodes((prev) => layoutClustersNearAiPanel(prev, window.innerWidth, aiVisible));
+    };
+
+    relayout();
+    window.addEventListener('resize', relayout);
+    return () => window.removeEventListener('resize', relayout);
+  }, [aiVisible, clusterNodes.length, clustersManuallyMoved]);
+
+  useEffect(() => {
     return () => {
+      clearClusterAnimation();
       imageBlobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       imageBlobUrlsRef.current.clear();
     };
@@ -270,10 +351,17 @@ export default function useWorkspace() {
     setAiVisible,
     uploadFiles,
     addThoughtNode,
+    addUrlNode,
     removeNode,
     renameNode,
     onMouseDownNode,
+    onMouseDownCluster,
     onMouseMoveCanvas,
-    organizeFiles
+    organizeFiles,
+    clusterNodes,
+    clusterEdges,
+    clusterStage,
+    runClusterGraph,
+    clearClusterGraph
   };
 }
