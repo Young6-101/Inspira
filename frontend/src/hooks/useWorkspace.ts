@@ -16,10 +16,32 @@ export default function useWorkspace(stackId?: string) {
   const [coords, setCoords] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingClusterId, setDraggingClusterId] = useState<string | null>(null);
-  const [clustersManuallyMoved, setClustersManuallyMoved] = useState(false);
-  const [clusterNodes, setClusterNodes] = useState<ClusterNodeData[]>([]);
-  const [clusterEdges, setClusterEdges] = useState<ClusterEdgeData[]>([]);
-  const [clusterStage, setClusterStage] = useState<0 | 1 | 2 | 3>(0);
+  const [clustersManuallyMoved, setClustersManuallyMoved] = useState(() => {
+    if (!stackId) return false;
+    try { return localStorage.getItem(`inspira_cluster_moved_${stackId}`) === 'true'; } catch { return false; }
+  });
+  const [clusterNodes, setClusterNodes] = useState<ClusterNodeData[]>(() => {
+    if (!stackId) return [];
+    try { const saved = localStorage.getItem(`inspira_clusters_${stackId}`); return saved ? JSON.parse(saved) : []; } catch { return []; }
+  });
+  const [clusterEdges, setClusterEdges] = useState<ClusterEdgeData[]>(() => {
+    if (!stackId) return [];
+    try { const saved = localStorage.getItem(`inspira_edges_${stackId}`); return saved ? JSON.parse(saved) : []; } catch { return []; }
+  });
+  const [clusterStage, setClusterStage] = useState<0 | 1 | 2 | 3>(() => {
+    if (!stackId) return 0;
+    try { const saved = localStorage.getItem(`inspira_cluster_stage_${stackId}`); return saved ? parseInt(saved, 10) as any : 0; } catch { return 0; }
+  });
+
+  useEffect(() => {
+    if (!stackId) return;
+    if (clusterNodes.length > 0 || localStorage.getItem(`inspira_clusters_${stackId}`)) {
+      localStorage.setItem(`inspira_cluster_moved_${stackId}`, String(clustersManuallyMoved));
+      localStorage.setItem(`inspira_clusters_${stackId}`, JSON.stringify(clusterNodes));
+      localStorage.setItem(`inspira_edges_${stackId}`, JSON.stringify(clusterEdges));
+      localStorage.setItem(`inspira_cluster_stage_${stackId}`, String(clusterStage));
+    }
+  }, [clusterNodes, clusterEdges, clusterStage, clustersManuallyMoved, stackId]);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const clusterDragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const imageBlobUrlsRef = useRef<Set<string>>(new Set());

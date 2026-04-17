@@ -1,23 +1,38 @@
 # Inspira
 
-A RAG-based intelligent assistant with reasoning capabilities.
+Inspira is a multi-modal RAG assistant that helps users analyze uploaded files (PDF, PPT, images, text) and generate insights through a LangGraph reasoning workflow.
+
+Frontend demo: https://inspira.innospace.dev/ (to save token cost, only frontend experience is currently enabled).
+
+## Features
+
+- Multi-modal ingestion (documents + images)
+- LangGraph reasoning pipeline (`memory_retrieve -> classify_intent -> tool_router/refine -> generate_response`)
+- FastAPI backend with sync and streaming chat endpoints
+- React + Vite frontend workspace experience
+- Offline RAGAS evaluation pipeline with dataset cleaning utilities
 
 ## Tech Stack
 
-- **Backend**: Python, FastAPI, LangChain, LangGraph, ChromaDB
-- **Frontend**: React, TypeScript, Vite, HeroUI, Tailwind CSS
+- Backend: Python, FastAPI, LangGraph, LangChain, OpenAI API, SQLModel
+- Frontend: React, TypeScript, Vite, Tailwind CSS
+- Evaluation: RAGAS, HuggingFace `datasets`
 
-## Project Structure
+## Repository Structure
 
 ```
 Inspira/
-├── backend/           # Python backend service
-│   ├── config/        # Configuration files
-│   ├── file_processor/# PDF, image, text processing
-│   ├── rag_engine/    # RAG components (embedder, retriever, vector store)
-│   ├── reasoning/     # LangGraph reasoning nodes
-│   └── training/      # Model fine-tuning scripts
-├── frontend v2/       # React frontend application
+├── backend/
+│   ├── main.py                      # FastAPI app entry
+│   ├── routers/                     # REST routes (stacks/files/ai)
+│   ├── reasoning/                   # LangGraph state, nodes, tools
+│   ├── file_processor/              # PDF/PPT/image/text processing
+│   ├── rag_engine/                  # Retrieval and embedding logic
+│   ├── evaluation/ragas/            # RAGAS scripts and reports
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   └── package.json
 └── README.md
 ```
 
@@ -25,80 +40,73 @@ Inspira/
 
 - Python 3.10+
 - Node.js 18+
-- CUDA 12.4 (for GPU acceleration)
-- Conda (recommended for environment management)
+- Conda or venv (recommended)
+- OpenAI API key
 
-## Installation
+## Backend Setup
 
-### Backend Setup
-
-1. Create and activate conda environment:
+1. Create and activate environment
 
 ```bash
-conda create -n inspira python=3.10
+conda create -n inspira python=3.10 -y
 conda activate inspira
 ```
 
-2. **Install PyTorch with CUDA support** (must install separately due to CUDA dependencies):
-
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-```
-
-> ⚠️ **Important**: PyTorch must be installed from the PyTorch wheel index to get CUDA support. Installing directly from `requirements.txt` will fail or install CPU-only version.
-
-3. Install other dependencies:
+2. Install dependencies
 
 ```bash
 cd backend
 pip install -r requirements.txt
 ```
 
-4. Create `.env` file in backend directory:
+3. Create `backend/.env`
 
-```bash
-cp .env.example .env
-# Edit .env with your API keys
+Required minimum:
+
+```env
+OPENAI_API_KEY=your_key_here
+OPENAI_CHAT_MODEL=gpt-4o-mini
+OPENAI_VISION_MODEL=gpt-4o-mini
 ```
 
-5. Run the backend:
+Optional commonly used settings:
 
-```bash
-uvicorn main:app --reload
+```env
+APP_MODE=local
+REDIS_URL=redis://localhost:6379/0
+RETRIEVAL_CACHE_ENABLED=true
+MEMORY_ENABLED=true
+RAGAS_LOG_CHAT_SAMPLES=1
 ```
 
-### Frontend Setup
-
-1. Install dependencies:
+4. Run backend (from repository root)
 
 ```bash
-cd "frontend v2"
+uvicorn backend.main:app --reload
+```
+
+Health check:
+
+```text
+GET http://127.0.0.1:8000/health
+```
+
+## Frontend Setup
+
+```bash
+cd frontend
 npm install
-```
-
-2. Run development server:
-
-```bash
 npm run dev
 ```
 
-## Notes
+Default dev URL is usually `http://127.0.0.1:5173`.
 
-### PyTorch Version Requirements
+## API Quick Reference
 
-Due to [CVE-2025-32434](https://nvd.nist.gov/vuln/detail/CVE-2025-32434), PyTorch >= 2.6 is required for `torch.load` functionality. The project currently uses:
-
-- torch==2.6.0+cu124
-- torchvision==0.21.0+cu124
-- torchaudio==2.6.0+cu124
-
-### For CPU-only Installation
-
-If you don't have a CUDA-capable GPU:
-
-```bash
-pip install torch torchvision torchaudio
-```
+- `POST /chat` — non-streaming chat
+- `POST /chat/stream` — SSE streaming chat
+- `GET /stacks` / `POST /stacks` — stack management
+- `POST /stacks/{stack_id}/files` — file upload
 
 ## License
 

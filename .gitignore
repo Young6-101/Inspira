@@ -100,3 +100,9 @@ test_*.py
 *.pdf
 
 my_portfolio/
+
+inspira_db/
+inspira_db_vault/
+inspira_db_memory/
+
+DEV_README.md

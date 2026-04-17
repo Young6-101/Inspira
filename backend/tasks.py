@@ -119,6 +119,7 @@ def process_file_task(temp_path: str, filename: str, stack_id: str, db_file_id: 
 				file_rec = session.get(FileRecord, db_file_id)
 				if file_rec:
 					file_rec.status = "error"
+					file_rec.text_preview = f"[PROCESSING ERROR] {str(e)[:450]}"
 					session.add(file_rec)
 					session.commit()
 		return {"status": "error", "message": str(e)}

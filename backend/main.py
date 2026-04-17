@@ -17,6 +17,7 @@ load_dotenv()
 from backend.database import init_db
 from backend.routers import stacks, files, ai
 from backend.reasoning.graph import app as reasoning_app
+from backend.evaluation.ragas.runtime_logger import append_chat_sample
 from backend.settings import settings
 from backend.main_types import ChatRequest, ChatResponse
 
@@ -89,6 +90,19 @@ async def chat_endpoint(request: ChatRequest):
             "mode": request.mode, "model": request.model,
         }
         result = reasoning_app.invoke(graph_state)
+        try:
+            append_chat_sample(
+                question=request.question,
+                answer=result.get("answer", ""),
+                contexts=result.get("context", []),
+                stack_id=request.stack_id,
+                user_id=request.user_id,
+                session_id=session_id,
+                mode=request.mode,
+                model=request.model,
+            )
+        except Exception as log_err:
+            print(f"--- [RAGAS LOG] skipped due to error: {log_err} ---")
         return {"answer": result.get("answer", "")}
     except Exception as e:
         return {"answer": f"Error: {str(e)}"}
@@ -104,15 +118,60 @@ async def chat_stream_endpoint(request: ChatRequest):
             "user_id": request.user_id, "session_id": session_id,
             "mode": request.mode, "model": request.model,
         }
+        answer_parts: list[str] = []
+        captured_contexts: list[str] = []
+
+        def _extract_contexts(output: object) -> list[str]:
+            if not isinstance(output, dict):
+                return []
+            raw = output.get("context")
+            if isinstance(raw, list):
+                return [str(item).strip() for item in raw if str(item).strip()]
+            return []
+
         # astream_events picks up chunks from nodes named 'generate_response' or 'probe_user'
         async for event in reasoning_app.astream_events(graph_state, version="v1"):
-            kind = event["event"]
+            kind = event.get("event")
             if kind == "on_chat_model_stream":
-                node = event["metadata"].get("langgraph_node")
+                metadata = event.get("metadata") if isinstance(event, dict) else {}
+                node = metadata.get("langgraph_node") if isinstance(metadata, dict) else None
                 if node in ["generate_response", "probe_user"]:
-                    content = event["data"]["chunk"].content
+                    data = event.get("data") if isinstance(event, dict) else {}
+                    chunk = data.get("chunk") if isinstance(data, dict) else None
+                    content = getattr(chunk, "content", "")
                     if content:
+                        answer_parts.append(content)
                         yield json.dumps({"token": content})
+            elif kind == "on_chain_end":
+                metadata = event.get("metadata") if isinstance(event, dict) else {}
+                node = metadata.get("langgraph_node") if isinstance(metadata, dict) else None
+                data = event.get("data") if isinstance(event, dict) else {}
+                output = data.get("output") if isinstance(data, dict) else None
+
+                if node in ["tool_router", "refine_context"]:
+                    contexts = _extract_contexts(output)
+                    if contexts:
+                        captured_contexts = contexts
+                elif node in ["generate_response", "probe_user"] and isinstance(output, dict):
+                    final_answer = output.get("answer")
+                    if isinstance(final_answer, str) and final_answer.strip() and not answer_parts:
+                        answer_parts.append(final_answer)
+
+        try:
+            final_answer_text = "".join(answer_parts).strip()
+            if final_answer_text:
+                append_chat_sample(
+                    question=request.question,
+                    answer=final_answer_text,
+                    contexts=captured_contexts,
+                    stack_id=request.stack_id,
+                    user_id=request.user_id,
+                    session_id=session_id,
+                    mode=request.mode,
+                    model=request.model,
+                )
+        except Exception as log_err:
+            print(f"--- [RAGAS LOG] stream skipped due to error: {log_err} ---")
 
     return EventSourceResponse(event_generator())
 
