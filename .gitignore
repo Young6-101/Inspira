@@ -2,3 +2,24 @@ node_modules
 dist
 .DS_Store
 *.local
+
+# --- Python/backend artifacts (frontend-v2 branch ignores) ---
+backend/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Local data / runtime outputs ---
+uploads/
+inspira_db_memory/
+inspira_db_vault/
+my_portfolio/
+
+# --- Local scripts not needed for frontend-only branch ---
+test_step1.py
+test_step2_search.py
+test_step3_image.py
+
+# --- Editor folders ---
+.vscode/
