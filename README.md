@@ -18,6 +18,13 @@ Frontend demo: https://inspira.innospace.dev/ (to save token cost, only frontend
 - Frontend: React, TypeScript, Vite, Tailwind CSS
 - Evaluation: RAGAS, HuggingFace `datasets`
 
+## AWS Infrastructure & Services
+
+- **Access & Delivery**: Static assets are hosted on Amazon S3 and delivered via CloudFront to ensure global low-latency access.
+- **Compute**: Backend services are containerized using Docker and deployed on Amazon ECS (Elastic Container Service). EC2 GPU-optimized instances are selected for multimodal processing, as the large memory footprint of models like CLIP makes serverless (AWS Lambda) inefficient for this specific use case.
+- **Data & Memory**: Amazon RDS manages structured user data, while Amazon ElastiCache handles high-frequency memory tasks. User-uploaded inspiration elements are stored in S3 for durability and cost-efficiency.
+- **Asynchronous Processing**: Long-running tasks, such as embedding a 100-page technical paper or a high-resolution image gallery, are managed via Amazon SQS queues to prevent request timeouts and ensure a smooth user journey.
+
 ## Repository Structure
 
 ```
